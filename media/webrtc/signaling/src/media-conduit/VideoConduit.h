@@ -12,9 +12,11 @@
 
 // Video Engine Includes
 #include "webrtc/common_types.h"
+#include "modules/video_coding/codecs/interface/video_codec_interface.h"
 #include "webrtc/video_engine/include/vie_base.h"
 #include "webrtc/video_engine/include/vie_capture.h"
 #include "webrtc/video_engine/include/vie_codec.h"
+#include "video_engine/include/vie_external_codec.h"
 #include "webrtc/video_engine/include/vie_render.h"
 #include "webrtc/video_engine/include/vie_network.h"
 #include "webrtc/video_engine/include/vie_rtp_rtcp.h"
@@ -34,6 +36,16 @@
 namespace mozilla {
 
 class WebrtcAudioConduit;
+
+// Marker interfaces.
+class WebrtcVideoEncoder : public VideoEncoder, public webrtc::VideoEncoder {
+};
+
+class WebrtcVideoDecoder : public VideoDecoder, public webrtc::VideoDecoder {
+};
+
+
+
 
 /**
  * Concrete class for Video session. Hooks up
@@ -127,6 +139,10 @@ public:
                                                 VideoType video_type,
                                                 uint64_t capture_time);
 
+  virtual MediaConduitErrorCode SetExternalSendCodec(int pltype,
+						     VideoEncoder* encoder);
+  virtual MediaConduitErrorCode SetExternalRecvCodec(int pltype,
+						     VideoDecoder* decoder);
 
 
   /**
@@ -187,6 +203,8 @@ public:
                       mTransport(nullptr),
                       mRenderer(nullptr),
                       mPtrExtCapture(nullptr),
+                      mPtrExtCodec(nullptr),
+                      mPtrRTP(nullptr),
                       mEngineTransmitting(false),
                       mEngineReceiving(false),
                       mChannel(-1),
@@ -255,13 +273,14 @@ private:
   mozilla::RefPtr<TransportInterface> mTransport;
   mozilla::RefPtr<VideoRenderer> mRenderer;
 
+
   ScopedCustomReleasePtr<webrtc::ViEBase> mPtrViEBase;
   ScopedCustomReleasePtr<webrtc::ViECapture> mPtrViECapture;
   ScopedCustomReleasePtr<webrtc::ViECodec> mPtrViECodec;
   ScopedCustomReleasePtr<webrtc::ViENetwork> mPtrViENetwork;
   ScopedCustomReleasePtr<webrtc::ViERender> mPtrViERender;
   ScopedCustomReleasePtr<webrtc::ViERTP_RTCP> mPtrRTP;
-
+  ScopedCustomReleasePtr<webrtc::VieExternalCoded> mPtrExtCodec;
   webrtc::ViEExternalCapture* mPtrExtCapture; // shared
 
   // Engine state we are concerned with.
