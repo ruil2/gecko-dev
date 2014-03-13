@@ -20,9 +20,16 @@
 #include "mozilla/StaticPtr.h"
 #include "nsIMemoryReporter.h"
 #include "nsComponentManagerUtils.h"
-#include "nsITimer.h"
 #include <algorithm>
 #include "MediaShutdownManager.h"
+
+#include "mozIGeckoMediaPluginService.h"
+#include "nsContentCID.h"
+#include "nsServiceManagerUtils.h"
+
+#include "gmp-video-host.h"
+#include "gmp-video-frame-i420.h"
+#include "gmp-video-frame-encoded.h"
 
 #ifdef MOZ_WMF
 #include "WMFDecoder.h"
@@ -102,7 +109,7 @@ StaticRefPtr<MediaMemoryTracker> MediaMemoryTracker::sUniqueInstance;
 
 NS_IMPL_ISUPPORTS1(MediaMemoryTracker, nsIMemoryReporter)
 
-NS_IMPL_ISUPPORTS1(MediaDecoder, nsIObserver)
+NS_IMPL_ISUPPORTS2(MediaDecoder, nsIObserver, nsITimerCallback)
 
 void MediaDecoder::SetDormantIfNecessary(bool aDormant)
 {
@@ -144,6 +151,18 @@ void MediaDecoder::SetDormantIfNecessary(bool aDormant)
 
 void MediaDecoder::Pause()
 {
+  mGMPTimer->Cancel();
+  mGMPDecodingComplete = true;
+  mGMPEncodingComplete = true;
+  if (mGMPVD && mOutstandingDecodeRequests == 0) {
+    mGMPVD->DecodingComplete();
+    mGMPVD = nullptr;
+  }
+  if (mGMPVE && mOutstandingEncodeRequests == 0) {
+    mGMPVE->EncodingComplete();
+    mGMPVE = nullptr;
+  }
+
   MOZ_ASSERT(NS_IsMainThread());
   ReentrantMonitorAutoEnter mon(GetReentrantMonitor());
   if ((mPlayState == PLAY_STATE_LOADING && mIsDormant)  || mPlayState == PLAY_STATE_SEEKING || mPlayState == PLAY_STATE_ENDED) {
@@ -415,6 +434,14 @@ MediaDecoder::MediaDecoder() :
   mTransportSeekable(true),
   mMediaSeekable(true),
   mSameOriginMedia(false),
+  mGMPVD(nullptr),
+  mGMPVE(nullptr),
+  mGMPEncoderHost(nullptr),
+  mGMPDecoderHost(nullptr),
+  mGMPDecodingComplete(false),
+  mGMPEncodingComplete(false),
+  mOutstandingDecodeRequests(0),
+  mOutstandingEncodeRequests(0),
   mReentrantMonitor("media.decoder"),
   mIsDormant(false),
   mIsExitingDormant(false),
@@ -441,12 +468,120 @@ MediaDecoder::MediaDecoder() :
 #endif
 }
 
+NS_IMETHODIMP MediaDecoder::Notify(nsITimer* timer)
+{
+  if (mGMPDecodingComplete || mGMPEncodingComplete) {
+    return NS_OK;
+  }
+
+  nsCOMPtr<mozIGeckoMediaPluginService> mps = do_GetService("@mozilla.org/gecko-media-plugin-service;1");
+  if (!mps) {
+    return NS_ERROR_FAILURE;
+  }
+
+  GMPVideoCodec codec;
+  memset(&codec, 0, sizeof(codec));
+  codec.mCodecType = kGMPVideoCodecVP8;
+
+  GMPCodecSpecificInfo codecSpecificInfo;
+  memset(&codecSpecificInfo, 0, sizeof(codecSpecificInfo));
+  codecSpecificInfo.mCodecType = kGMPVideoCodecVP8;
+
+  nsresult rv = NS_ERROR_FAILURE;
+
+  // First encode something
+  if (!mGMPVE) {
+    rv = mps->GetGMPVideoEncoderVP8(&mGMPEncoderHost, &mGMPVE);
+    if (NS_FAILED(rv) || !mGMPVE || !mGMPEncoderHost) {
+      return NS_ERROR_FAILURE;
+    }
+  }
+
+  GMPVideoErr err = mGMPVE->InitEncode(codec, this, 1, 1);
+  if (err != GMPVideoNoErr) {
+    return NS_ERROR_FAILURE;
+  }
+
+  GMPVideoFrame* f = nullptr;
+  err = mGMPEncoderHost->CreateFrame(kGMPI420VideoFrame, &f);
+  if (err != GMPVideoNoErr) {
+    return NS_ERROR_FAILURE;
+  }
+  GMPVideoi420Frame* i420Frame = static_cast<GMPVideoi420Frame*>(f);
+
+  err = i420Frame->CreateEmptyFrame(100, 100, 100, 100, 100);
+  if (err != GMPVideoNoErr) {
+    return NS_ERROR_FAILURE;
+  }
+
+  uint8_t* buffer = i420Frame->Buffer(kGMPYPlane);
+  if (!buffer) {
+    printf("No buffer for i420 frame!\n");
+    return NS_ERROR_FAILURE;
+  }
+  memset(buffer, 0x3, 1000);
+
+  std::vector<GMPVideoFrameType> foo;
+  err = mGMPVE->Encode(i420Frame, codecSpecificInfo, &foo);
+  if (err != GMPVideoNoErr) {
+    return NS_ERROR_FAILURE;
+  }
+
+  mOutstandingEncodeRequests++;
+
+  // Now decode something
+
+  if (!mGMPVD) {
+    rv = mps->GetGMPVideoDecoderVP8(&mGMPDecoderHost, &mGMPVD);
+    if (NS_FAILED(rv) || !mGMPVD || !mGMPDecoderHost) {
+      return NS_ERROR_FAILURE;
+    }
+  }
+
+  err = mGMPVD->InitDecode(codec, this, 1);
+  if (err != GMPVideoNoErr) {
+    return NS_ERROR_FAILURE;
+  }
+
+  f = nullptr;
+  err = mGMPDecoderHost->CreateFrame(kGMPEncodedVideoFrame, &f);
+  if (err != GMPVideoNoErr) {
+    return NS_ERROR_FAILURE;
+  }
+  GMPVideoEncodedFrame* encFrame = static_cast<GMPVideoEncodedFrame*>(f);
+
+  err = encFrame->CreateEmptyFrame(1000);
+  if (err != GMPVideoNoErr) {
+    return NS_ERROR_FAILURE;
+  }
+
+  buffer = encFrame->Buffer();
+  if (!buffer) {
+    printf("No buffer for encoded frame!\n");
+    return NS_ERROR_FAILURE;
+  }
+  memset(buffer, 0x2, 1000);
+
+  err = mGMPVD->Decode(encFrame, false, codecSpecificInfo);
+  if (err != GMPVideoNoErr) {
+    return NS_ERROR_FAILURE;
+  }
+
+  mOutstandingDecodeRequests++;
+
+  return NS_OK;
+}
+
 bool MediaDecoder::Init(MediaDecoderOwner* aOwner)
 {
   MOZ_ASSERT(NS_IsMainThread());
   mOwner = aOwner;
   mVideoFrameContainer = aOwner->GetVideoFrameContainer();
   MediaShutdownManager::Instance().Register(this);
+
+  mGMPTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+  mGMPTimer->InitWithCallback(this, 33, nsITimer::TYPE_REPEATING_SLACK);
+
   return true;
 }
 
@@ -860,6 +995,64 @@ void MediaDecoder::ResourceLoaded()
   // Ensure the final progress event gets fired
   if (mOwner) {
     mOwner->ResourceLoaded();
+  }
+}
+
+void
+MediaDecoder::Decoded(GMPVideoi420Frame* aDecodedFrame)
+{
+  if (!aDecodedFrame) {
+    return;
+  }
+
+  const uint8_t* buffer = aDecodedFrame->Buffer(kGMPYPlane);
+  for (uint32_t i = 0; i < 1000; i++) {
+    printf("%i", buffer[i]);
+  }
+  printf("\n");
+
+  aDecodedFrame->Destroy();
+
+  mOutstandingDecodeRequests--;
+
+  if (mGMPDecodingComplete && mOutstandingDecodeRequests == 0) {
+    mGMPVD->DecodingComplete();
+    mGMPVD = nullptr;
+  }
+}
+
+void
+MediaDecoder::ReceivedDecodedReferenceFrame(const uint64_t pictureId)
+{
+}
+
+void
+MediaDecoder::ReceivedDecodedFrame(const uint64_t pictureId)
+{
+}
+
+void
+MediaDecoder::InputDataExhausted()
+{
+}
+
+void
+MediaDecoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
+                      const GMPCodecSpecificInfo& aCodecSpecificInfo)
+{
+  const uint8_t* buffer = aEncodedFrame->Buffer();
+  for (uint32_t i = 0; i < 1000; i++) {
+    printf("%i", buffer[i]);
+  }
+  printf("\n");
+
+  aEncodedFrame->Destroy();
+
+  mOutstandingEncodeRequests--;
+
+  if (mGMPEncodingComplete && mOutstandingEncodeRequests == 0) {
+    mGMPVE->EncodingComplete();
+    mGMPVE = nullptr;
   }
 }
 
