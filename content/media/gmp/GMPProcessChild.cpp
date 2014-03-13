@@ -10,6 +10,7 @@
 #include "base/string_util.h"
 #include "chrome/common/chrome_switches.h"
 #include "mozilla/ipc/IOThreadChild.h"
+#include "mozilla/BackgroundHangMonitor.h"
 
 using mozilla::ipc::IOThreadChild;
 
@@ -45,6 +46,8 @@ GMPProcessChild::Init()
 #error Not implemented
 #endif
 
+  BackgroundHangMonitor::Startup();
+
   return mPlugin.Init(pluginFilename,
                       ParentHandle(),
                       IOThreadChild::message_loop(),
@@ -54,6 +57,7 @@ GMPProcessChild::Init()
 void
 GMPProcessChild::CleanUp()
 {
+  BackgroundHangMonitor::Shutdown();
 }
 
 } // namespace gmp
