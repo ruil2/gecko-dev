@@ -110,7 +110,7 @@ GMPParent::VideoDecoderDestroyed(GMPVideoDecoderParent* aDecoder)
   // Recv__delete__ is on the stack, don't potentially destroy the top-level actor
   // until after this has completed.
   nsCOMPtr<nsIRunnable> event = NS_NewRunnableMethod(this, &GMPParent::MaybeUnloadProcess);
-  NS_DispatchToMainThread(event);
+  NS_DispatchToCurrentThread(event);
 }
 
 void
@@ -121,7 +121,7 @@ GMPParent::VideoEncoderDestroyed(GMPVideoEncoderParent* aEncoder)
   // Recv__delete__ is on the stack, don't potentially destroy the top-level actor
   // until after this has completed.
   nsCOMPtr<nsIRunnable> event = NS_NewRunnableMethod(this, &GMPParent::MaybeUnloadProcess);
-  NS_DispatchToMainThread(event);
+  NS_DispatchToCurrentThread(event);
 }
 
 bool
