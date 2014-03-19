@@ -267,6 +267,10 @@ public:
   virtual void Encoded(GMPVideoEncodedFrame* aEncodedFrame,
                        const GMPCodecSpecificInfo& aCodecSpecificInfo) MOZ_OVERRIDE;
 
+  // GMP Methods
+  void GMPInit();
+  void GMPPause();
+
   // Reset the decoder and notify the media element that
   // server connection is closed.
   virtual void ResetConnectionState();

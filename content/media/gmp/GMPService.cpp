@@ -16,6 +16,7 @@ namespace gmp {
 NS_IMPL_ISUPPORTS2(GeckoMediaPluginService, mozIGeckoMediaPluginService, nsIObserver)
 
 GeckoMediaPluginService::GeckoMediaPluginService()
+: mThreadCreateMutex("gmp-thread-create")
 {
   nsCOMPtr<nsIObserverService> obsService = mozilla::services::GetObserverService();
   if (obsService) {
@@ -33,8 +34,31 @@ GeckoMediaPluginService::Observe(nsISupports *aSubject,
                                  const char16_t *someData)
 {
   if (!strcmp(NS_XPCOM_SHUTDOWN_OBSERVER_ID, aTopic)) {
-    UnloadPlugins();
+    if (mGMPThread) {
+      mGMPThread->Dispatch(NS_NewRunnableMethod(this, &GeckoMediaPluginService::UnloadPlugins),
+                           NS_DISPATCH_SYNC);
+    }
   }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+GeckoMediaPluginService::GetThread(nsIThread** aThread)
+{
+  MOZ_ASSERT(aThread, "Must pass valid out ptr!");
+
+  MutexAutoLock lock(mThreadCreateMutex);
+
+  if (!mGMPThread) {
+    nsresult rv = NS_NewNamedThread("GMPThread", getter_AddRefs(mGMPThread));
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+  }
+
+  NS_ADDREF(mGMPThread);
+  *aThread = mGMPThread;
+
   return NS_OK;
 }
 
@@ -90,6 +114,7 @@ GeckoMediaPluginService::UnloadPlugins()
   for (uint32_t i = 0; i < mPlugins.Length(); i++) {
     mPlugins[i]->UnloadProcess();
   }
+  mPlugins.Clear();
 }
 
 GMPParent* GeckoMediaPluginService::SelectPluginForAPI(const nsCString& api,

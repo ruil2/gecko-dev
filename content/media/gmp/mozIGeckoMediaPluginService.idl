@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsISupports.idl"
+#include "nsIThread.idl"
 
 %{C++
 class GMPVideoDecoder;
@@ -14,10 +15,14 @@ class GMPVideoHost;
 [ptr] native GMPVideoDecoder(GMPVideoDecoder);
 [ptr] native GMPVideoEncoder(GMPVideoEncoder);
 [ptr] native GMPVideoHost(GMPVideoHost);
+[ptr] native MessageLoop(MessageLoop);
 
-[scriptable, uuid(59C3E1B1-E6F0-4D92-A139-E30E188CE52F)]
+[uuid(BF5A9086-70F5-4D38-832D-1609BBF963CD)]
 interface mozIGeckoMediaPluginService : nsISupports
 {
+  // Returns the GMP thread.
+  readonly attribute nsIThread thread;
+
   // Returns a video decoder API object that should support VP8.
   GMPVideoDecoder getGMPVideoDecoderVP8(out GMPVideoHost outVideoHost);
 

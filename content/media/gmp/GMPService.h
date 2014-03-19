@@ -11,6 +11,8 @@
 #include "nsIObserver.h"
 #include "nsTArray.h"
 #include "nsIFile.h"
+#include "mozilla/Mutex.h"
+#include "nsIThread.h"
 
 namespace mozilla {
 namespace gmp {
@@ -21,7 +23,7 @@ class GeckoMediaPluginService : public mozIGeckoMediaPluginService,
 public:
   GeckoMediaPluginService();
 
-  NS_DECL_ISUPPORTS
+  NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_MOZIGECKOMEDIAPLUGINSERVICE
   NS_DECL_NSIOBSERVER
 
@@ -39,6 +41,8 @@ private:
   nsresult GetDirectoriesToSearch(nsTArray<nsCOMPtr<nsIFile>> &aDirs);
 
   nsTArray<nsRefPtr<GMPParent>> mPlugins;
+  Mutex mThreadCreateMutex;
+  nsCOMPtr<nsIThread> mGMPThread;
 };
 
 } // namespace gmp

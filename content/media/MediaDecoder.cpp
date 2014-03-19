@@ -149,18 +149,29 @@ void MediaDecoder::SetDormantIfNecessary(bool aDormant)
   }
 }
 
-void MediaDecoder::Pause()
+nsCOMPtr<nsIThread> sGMPThread = nullptr;
+
+void MediaDecoder::GMPPause()
 {
   mGMPTimer->Cancel();
+
   mGMPDecodingComplete = true;
-  mGMPEncodingComplete = true;
   if (mGMPVD && mOutstandingDecodeRequests == 0) {
     mGMPVD->DecodingComplete();
     mGMPVD = nullptr;
   }
+
+  mGMPEncodingComplete = true;
   if (mGMPVE && mOutstandingEncodeRequests == 0) {
     mGMPVE->EncodingComplete();
     mGMPVE = nullptr;
+  }
+}
+
+void MediaDecoder::Pause()
+{
+  if (sGMPThread) {
+    sGMPThread->Dispatch(NS_NewRunnableMethod(this, &MediaDecoder::GMPPause), NS_DISPATCH_NORMAL);
   }
 
   MOZ_ASSERT(NS_IsMainThread());
@@ -572,6 +583,12 @@ NS_IMETHODIMP MediaDecoder::Notify(nsITimer* timer)
   return NS_OK;
 }
 
+void MediaDecoder::GMPInit()
+{
+  mGMPTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+  mGMPTimer->InitWithCallback(this, 33, nsITimer::TYPE_REPEATING_SLACK);
+}
+
 bool MediaDecoder::Init(MediaDecoderOwner* aOwner)
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -579,8 +596,17 @@ bool MediaDecoder::Init(MediaDecoderOwner* aOwner)
   mVideoFrameContainer = aOwner->GetVideoFrameContainer();
   MediaShutdownManager::Instance().Register(this);
 
-  mGMPTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
-  mGMPTimer->InitWithCallback(this, 33, nsITimer::TYPE_REPEATING_SLACK);
+  if (!sGMPThread) {
+    nsCOMPtr<mozIGeckoMediaPluginService> mps = do_GetService("@mozilla.org/gecko-media-plugin-service;1");
+    if (!mps) {
+      return false;
+    }
+    mps->GetThread(getter_AddRefs(sGMPThread));
+    if (!sGMPThread) {
+      return false;
+    }
+  }
+  sGMPThread->Dispatch(NS_NewRunnableMethod(this, &MediaDecoder::GMPInit), NS_DISPATCH_NORMAL);
 
   return true;
 }
