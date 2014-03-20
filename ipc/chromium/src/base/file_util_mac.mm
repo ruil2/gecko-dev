@@ -14,10 +14,14 @@
 namespace file_util {
 
 bool GetTempDir(FilePath* path) {
+  NSAutoreleasePool* pool = [[NSAutoreleasePool alloc] init];
   NSString* tmp = NSTemporaryDirectory();
-  if (tmp == nil)
+  if (tmp == nil) {
+    [pool release];
     return false;
+  }
   *path = FilePath([tmp fileSystemRepresentation]);
+  [pool release];
   return true;
 }
 
