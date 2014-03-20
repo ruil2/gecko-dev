@@ -48,7 +48,8 @@ void WebrtcGmpFrameStats::FrameIn() {
 
 // Encoder.
 WebrtcGmpVideoEncoder::WebrtcGmpVideoEncoder() :
-    main_thread_(nullptr),
+    mps_(nullptr),
+    gmp_thread_(nullptr),
     gmp_(nullptr),
     host_(nullptr),
     callback_(nullptr),
@@ -112,14 +113,20 @@ int32_t WebrtcGmpVideoEncoder::InitEncode(
     const webrtc::VideoCodec* codecSettings,
     int32_t numberOfCores,
     uint32_t maxPayloadSize) {
-  nsresult rv = NS_GetMainThread(&main_thread_);
+  mps_ = do_GetService("@mozilla.org/gecko-media-plugin-service;1");
+
+  if (!mps_) {
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  nsresult rv = mps_->GetThread(&gmp_thread_);
   if (NS_FAILED(rv))
     return WEBRTC_VIDEO_CODEC_ERROR;
 
   int32_t ret;
-  RUN_ON_THREAD(main_thread_,
+  RUN_ON_THREAD(gmp_thread_,
                 WrapRunnableRet(this,
-                                &WebrtcGmpVideoEncoder::InitEncode_m,
+                                &WebrtcGmpVideoEncoder::InitEncode_g,
                                 codecSettings,
                                 numberOfCores,
                                 maxPayloadSize,
@@ -129,21 +136,14 @@ int32_t WebrtcGmpVideoEncoder::InitEncode(
   return ret;
 }
 
-int32_t WebrtcGmpVideoEncoder::InitEncode_m(
+int32_t WebrtcGmpVideoEncoder::InitEncode_g(
     const webrtc::VideoCodec* codecSettings,
     int32_t numberOfCores,
     uint32_t maxPayloadSize) {
-  nsCOMPtr<mozIGeckoMediaPluginService> mps =
-      do_GetService("@mozilla.org/gecko-media-plugin-service;1");
-
-  if (!mps) {
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
   GMPVideoHost* host = nullptr;
   GMPVideoEncoder* gmp = nullptr;
 
-  nsresult rv = mps->GetGMPVideoEncoderVP8(&host, &gmp);
+  nsresult rv = mps_->GetGMPVideoEncoderVP8(&host, &gmp);
   if (NS_FAILED(rv))
     return WEBRTC_VIDEO_CODEC_ERROR;
 
@@ -185,9 +185,9 @@ int32_t WebrtcGmpVideoEncoder::Encode(
 
 
   int32_t ret;
-  RUN_ON_THREAD(main_thread_,
+  RUN_ON_THREAD(gmp_thread_,
                 WrapRunnableRet(this,
-                                &WebrtcGmpVideoEncoder::Encode_m,
+                                &WebrtcGmpVideoEncoder::Encode_g,
                                 &inputImage,
                                 codecSpecificInfo,
                                 frame_types,
@@ -199,7 +199,7 @@ int32_t WebrtcGmpVideoEncoder::Encode(
 }
 
 
- int32_t WebrtcGmpVideoEncoder::Encode_m(const webrtc::I420VideoFrame* inputImage,
+ int32_t WebrtcGmpVideoEncoder::Encode_g(const webrtc::I420VideoFrame* inputImage,
                                          const webrtc::CodecSpecificInfo* codecSpecificInfo,
                                          const std::vector<webrtc::VideoFrameType>* frame_types) {
   GMPVideoFrame* ftmp = nullptr;
@@ -300,14 +300,16 @@ void WebrtcGmpVideoEncoder::Encoded(GMPVideoEncodedFrame* aEncodedFrame,
   callback_->Encoded(image, nullptr, nullptr);
   stats_.FrameOut();
   ts->Stamp("Encoded leave");
-  ts->Dump();
+  //  ts->Dump();
   delete ts;
+  aEncodedFrame->Destroy();
 }
 
 
 // Decoder.
 WebrtcGmpVideoDecoder::WebrtcGmpVideoDecoder() :
-    main_thread_(nullptr),
+    mps_(nullptr),
+    gmp_thread_(nullptr),
     gmp_(nullptr),
     host_(nullptr),
     callback_(nullptr),
@@ -316,14 +318,20 @@ WebrtcGmpVideoDecoder::WebrtcGmpVideoDecoder() :
 int32_t WebrtcGmpVideoDecoder::InitDecode(
     const webrtc::VideoCodec* codecSettings,
     int32_t numberOfCores) {
-  nsresult rv = NS_GetMainThread(&main_thread_);
+  mps_ = do_GetService("@mozilla.org/gecko-media-plugin-service;1");
+
+  if (!mps_) {
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  nsresult rv = mps_->GetThread(&gmp_thread_);
   if (NS_FAILED(rv))
     return WEBRTC_VIDEO_CODEC_ERROR;
 
   int32_t ret;
-  RUN_ON_THREAD(main_thread_,
+  RUN_ON_THREAD(gmp_thread_,
                 WrapRunnableRet(this,
-                                &WebrtcGmpVideoDecoder::InitDecode_m,
+                                &WebrtcGmpVideoDecoder::InitDecode_g,
                                 codecSettings,
                                 numberOfCores,
                                 &ret),
@@ -332,20 +340,13 @@ int32_t WebrtcGmpVideoDecoder::InitDecode(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t WebrtcGmpVideoDecoder::InitDecode_m(
+int32_t WebrtcGmpVideoDecoder::InitDecode_g(
     const webrtc::VideoCodec* codecSettings,
     int32_t numberOfCores) {
-  nsCOMPtr<mozIGeckoMediaPluginService> mps =
-      do_GetService("@mozilla.org/gecko-media-plugin-service;1");
-
-  if (!mps) {
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
   GMPVideoHost* host = nullptr;
   GMPVideoDecoder* gmp = nullptr;
 
-  nsresult rv = mps->GetGMPVideoDecoderVP8(&host, &gmp);
+  nsresult rv = mps_->GetGMPVideoDecoderVP8(&host, &gmp);
   if (NS_FAILED(rv))
     return WEBRTC_VIDEO_CODEC_ERROR;
 
@@ -380,9 +381,9 @@ int32_t WebrtcGmpVideoDecoder::Decode(
 
   int32_t ret;
 
-  RUN_ON_THREAD(main_thread_,
+  RUN_ON_THREAD(gmp_thread_,
                 WrapRunnableRet(this,
-                                &WebrtcGmpVideoDecoder::Decode_m,
+                                &WebrtcGmpVideoDecoder::Decode_g,
                                 inputImage,
                                 missingFrames,
                                 fragmentation,
@@ -394,7 +395,7 @@ int32_t WebrtcGmpVideoDecoder::Decode(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t WebrtcGmpVideoDecoder::Decode_m(
+int32_t WebrtcGmpVideoDecoder::Decode_g(
     const webrtc::EncodedImage& inputImage,
     bool missingFrames,
     const webrtc::RTPFragmentationHeader* fragmentation,
@@ -473,6 +474,7 @@ void WebrtcGmpVideoDecoder::Decoded(GMPVideoi420Frame* aDecodedFrame) {
 
   callback_->Decoded(image);
   stats_.FrameOut();
+  aDecodedFrame->Destroy();
 }
 
 }
