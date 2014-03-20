@@ -280,7 +280,7 @@ private:
   ScopedCustomReleasePtr<webrtc::ViENetwork> mPtrViENetwork;
   ScopedCustomReleasePtr<webrtc::ViERender> mPtrViERender;
   ScopedCustomReleasePtr<webrtc::ViERTP_RTCP> mPtrRTP;
-  ScopedCustomReleasePtr<webrtc::VieExternalCoded> mPtrExtCodec;
+  ScopedCustomReleasePtr<webrtc::ViEExternalCodec> mPtrExtCodec;
   webrtc::ViEExternalCapture* mPtrExtCapture; // shared
 
   // Engine state we are concerned with.
