@@ -55,6 +55,8 @@ class WebrtcGmpFrameStats {
     ++frames_out_;
   }
 
+  uint64_t frames_in() const { return frames_in_; }
+
  private:
   uint64_t frames_in_;
   uint64_t frames_out_;

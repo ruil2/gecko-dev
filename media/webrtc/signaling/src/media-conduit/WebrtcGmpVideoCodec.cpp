@@ -177,9 +177,12 @@ int32_t WebrtcGmpVideoEncoder::Encode(
     const webrtc::I420VideoFrame& inputImage,
     const webrtc::CodecSpecificInfo* codecSpecificInfo,
     const std::vector<webrtc::VideoFrameType>* frame_types) {
-  stampers_.push(new TimeStamper(""));
-  stampers_.back()->Stamp("Encode enter");
   stats_.FrameIn();
+  char tmp[40];
+  snprintf(tmp, sizeof(tmp), "CTX %p Frame %llu", this, stats_.frames_in());
+  stampers_.push(new TimeStamper(tmp));
+  stampers_.back()->Stamp("Encode enter");
+
 
   int32_t ret;
   RUN_ON_THREAD(main_thread_,
