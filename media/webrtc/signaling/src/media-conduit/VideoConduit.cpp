@@ -1137,16 +1137,21 @@ WebrtcVideoConduit::DeliverFrame(unsigned char* buffer,
                           buffer, delta_ms, 0,
                           mReceivingHeight - 60);
 
+	++mRecvFrames;
+	PRIntervalTime nowi = PR_IntervalNow();
+	uint32_t totalms = PR_IntervalToMilliseconds(nowi - mStartTime);
+	if (totalms) {
+	    YuvStamper::Write(mReceivingWidth, mReceivingHeight, mReceivingWidth,
+			      buffer, (mRecvFrames*1000)/totalms, 0,
+			      mReceivingHeight - 90);
+	}
+
 	uint32_t delta_frame = ntohl(meta.frame_ct) - mLastRecvFrame;
 	mLastRecvFrame = ntohl(meta.frame_ct);
         YuvStamper::Write(mReceivingWidth, mReceivingHeight, mReceivingWidth,
                           buffer, delta_frame, 0,
                           mReceivingHeight - 120);
 
-	++mRecvFrames;
-        YuvStamper::Write(mReceivingWidth, mReceivingHeight, mReceivingWidth,
-                          buffer, mRecvFrames - mLastRecvFrame, 0,
-                          mReceivingHeight - 90);
       }
     }
   }
