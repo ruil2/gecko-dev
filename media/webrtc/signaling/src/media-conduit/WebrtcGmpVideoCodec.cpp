@@ -36,6 +36,9 @@ void WebrtcGmpFrameStats::FrameIn() {
   ++frames_in_;
   time_t now = time(0);
 
+  if (now == last_time_)
+    return;
+
   if (!(frames_in_ % 30)) {
     std::cerr << type_ << ": " << now << " Frame count "
               << frames_in_
