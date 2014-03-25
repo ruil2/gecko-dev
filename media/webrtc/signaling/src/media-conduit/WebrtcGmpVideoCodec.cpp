@@ -165,6 +165,8 @@ int32_t WebrtcGmpVideoEncoder::InitEncode_g(
   codec.mWidth = codecSettings->width;
   codec.mHeight = codecSettings->height;
   codec.mStartBitrate = codecSettings->startBitrate;
+  codec.mMinBitrate = codecSettings->minBitrate;
+  codec.mMaxBitrate = codecSettings->maxBitrate;
   codec.mMaxFramerate = codecSettings->maxFramerate;
 
   GMPVideoErr err = gmp_->InitEncode(codec, this, 1, maxPayloadSize);
@@ -273,7 +275,12 @@ int32_t WebrtcGmpVideoEncoder::SetChannelParameters(uint32_t packetLoss,
 }
 
 int32_t WebrtcGmpVideoEncoder::SetRates(uint32_t newBitRate,
-					 uint32_t frameRate) {
+                                        uint32_t frameRate) {
+  GMPVideoErr err = gmp_->SetRates(newBitRate, frameRate);
+  if (err != GMPVideoNoErr) {
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
