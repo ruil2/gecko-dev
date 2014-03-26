@@ -137,7 +137,7 @@ class WebrtcGmpVideoEncoder : public WebrtcVideoEncoder,
                                              int rtt);
 
   virtual int32_t SetRates(uint32_t newBitRate,
-                                 uint32_t frameRate);
+                           uint32_t frameRate);
 
   // GMPEncoderCallback virtual functions.
   virtual void Encoded(GMPVideoEncodedFrame* aEncodedFrame,
@@ -152,6 +152,9 @@ class WebrtcGmpVideoEncoder : public WebrtcVideoEncoder,
   virtual int32_t Encode_g(const webrtc::I420VideoFrame* inputImage,
       const webrtc::CodecSpecificInfo* codecSpecificInfo,
       const std::vector<webrtc::VideoFrameType>* frame_types);
+
+  virtual int32_t SetRates_g(uint32_t newBitRate,
+                             uint32_t frameRate);
 
   nsCOMPtr<mozIGeckoMediaPluginService> mps_;
   nsIThread* gmp_thread_;
