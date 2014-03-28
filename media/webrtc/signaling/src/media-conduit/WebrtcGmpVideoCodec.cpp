@@ -276,6 +276,20 @@ int32_t WebrtcGmpVideoEncoder::SetChannelParameters(uint32_t packetLoss,
 
 int32_t WebrtcGmpVideoEncoder::SetRates(uint32_t newBitRate,
                                         uint32_t frameRate) {
+  int32_t ret;
+  RUN_ON_THREAD(gmp_thread_,
+                WrapRunnableRet(this,
+                                &WebrtcGmpVideoEncoder::SetRates_g,
+                                newBitRate,
+                                frameRate,
+                                &ret),
+                NS_DISPATCH_SYNC);
+
+  return ret;
+}
+
+int32_t WebrtcGmpVideoEncoder::SetRates_g(uint32_t newBitRate,
+                                          uint32_t frameRate) {
   GMPVideoErr err = gmp_->SetRates(newBitRate, frameRate);
   if (err != GMPVideoNoErr) {
     return WEBRTC_VIDEO_CODEC_ERROR;
