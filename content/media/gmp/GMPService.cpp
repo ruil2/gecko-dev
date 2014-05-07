@@ -148,8 +148,8 @@ GeckoMediaPluginService::GetDirectoriesToSearch(nsTArray<nsCOMPtr<nsIFile>> &aDi
 {
 #if defined(XP_MACOSX)
   nsCOMPtr<nsIFile> searchDir = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
-  nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("~/tmp/GMP/"));
-  //  nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("~/Library/Internet Plug-Ins/"));
+  //nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("~/tmp/GMP/"));
+  nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("/Volumes/Work/openh264_support/"));
   if (NS_FAILED(rv)) {
     return rv;
   }
