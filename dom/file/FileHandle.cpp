@@ -128,7 +128,7 @@ FileHandle::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aScope)
   return FileHandleBinding::Wrap(aCx, aScope, this);
 }
 
-already_AddRefed<nsIDOMLockedFile>
+already_AddRefed<LockedFile>
 FileHandle::Open(FileMode aMode, ErrorResult& aError)
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -164,7 +164,8 @@ FileHandle::GetFile(ErrorResult& aError)
     return nullptr;
   }
 
-  nsRefPtr<FileRequest> request = FileRequest::Create(GetOwner(), lockedFile);
+  nsRefPtr<FileRequest> request =
+    FileRequest::Create(GetOwner(), lockedFile, /* aWrapAsDOMRequest */ true);
 
   nsRefPtr<MetadataParameters> params = new MetadataParameters(true, false);
 

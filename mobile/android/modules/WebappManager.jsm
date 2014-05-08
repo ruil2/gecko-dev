@@ -23,6 +23,7 @@ Cu.import("resource://gre/modules/Task.jsm");
 Cu.import("resource://gre/modules/PluralForm.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "Notifications", "resource://gre/modules/Notifications.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "sendMessageToJava", "resource://gre/modules/Messaging.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "Strings", function() {
   return Services.strings.createBundle("chrome://browser/locale/webapp.properties");
@@ -34,13 +35,9 @@ function debug(aMessage) {
   // append a newline character to the end of the message because *dump* spills
   // into the Android native logging system, which strips newlines from messages
   // and breaks messages into lines automatically at display time (i.e. logcat).
-#ifdef MOZ_DEBUG
+#ifdef DEBUG
   dump(aMessage);
 #endif
-}
-
-function sendMessageToJava(aMessage) {
-  return Services.androidBridge.handleGeckoMessage(JSON.stringify(aMessage));
 }
 
 this.WebappManager = {
@@ -248,6 +245,13 @@ this.WebappManager = {
   _autoUpdate: function(aData, aOldApp) { return Task.spawn((function*() {
     debug("_autoUpdate app of type " + aData.type);
 
+    if (aOldApp.apkPackageName != aData.apkPackageName) {
+      // This happens when the app was installed as a shortcut via the old
+      // runtime and is now being updated to an APK.
+      debug("update apkPackageName from " + aOldApp.apkPackageName + " to " + aData.apkPackageName);
+      aOldApp.apkPackageName = aData.apkPackageName;
+    }
+
     if (aData.type == "hosted") {
       let oldManifest = yield DOMApplicationRegistry.getManifestFor(aData.manifestURL);
       DOMApplicationRegistry.updateHostedApp(aData, aOldApp.id, aOldApp, oldManifest, aData.manifest);
@@ -278,7 +282,7 @@ this.WebappManager = {
 
       // Map APK names to APK versions.
       let apkNameToVersion = yield this._getAPKVersions(installedApps.map(app =>
-        app.packageName).filter(packageName => !!packageName)
+        app.apkPackageName).filter(apkPackageName => !!apkPackageName)
       );
 
       // Map manifest URLs to APK versions, which is what the service needs
@@ -289,7 +293,7 @@ this.WebappManager = {
       let manifestUrlToApkVersion = {};
       let manifestUrlToApp = {};
       for (let app of installedApps) {
-        manifestUrlToApkVersion[app.manifestURL] = apkNameToVersion[app.packageName] || 0;
+        manifestUrlToApkVersion[app.manifestURL] = apkNameToVersion[app.apkPackageName] || 0;
         manifestUrlToApp[app.manifestURL] = app;
       }
 
@@ -370,7 +374,9 @@ this.WebappManager = {
                                 Ci.nsIChannel.LOAD_BYPASS_CACHE |
                                 Ci.nsIChannel.INHIBIT_CACHING;
     request.onload = function() {
-      notification.cancel();
+      if (userInitiated) {
+        notification.cancel();
+      }
       deferred.resolve(JSON.parse(this.response).outdated);
     };
     request.onerror = function() {

@@ -10,6 +10,7 @@
  * debugging global.
  */
 let DevToolsUtils = require("devtools/toolkit/DevToolsUtils.js");
+let Services = require("Services");
 
 // Until all Debugger server code is converted to SDK modules,
 // imports Components.* alias from chrome module.
@@ -23,6 +24,7 @@ this.CC = CC;
 this.Cu = Cu;
 this.Cr = Cr;
 this.DevToolsUtils = DevToolsUtils;
+this.Services = Services;
 
 // Overload `Components` to prevent SDK loader exception on Components
 // object usage
@@ -34,7 +36,6 @@ const DBG_STRINGS_URI = "chrome://global/locale/devtools/debugger.properties";
 
 const nsFile = CC("@mozilla.org/file/local;1", "nsIFile", "initWithPath");
 Cu.import("resource://gre/modules/reflect.jsm");
-Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 let wantLogging = Services.prefs.getBoolPref("devtools.debugger.log");
 
@@ -64,6 +65,7 @@ this.promised = promised;
 this.all = all;
 
 Cu.import("resource://gre/modules/devtools/SourceMap.jsm");
+Cu.import("resource://gre/modules/devtools/Console.jsm");
 
 function dumpn(str) {
   if (wantLogging) {
@@ -360,6 +362,7 @@ var DebuggerServer = {
 
     this.addActors("resource://gre/modules/devtools/server/actors/webapps.js");
     this.registerModule("devtools/server/actors/device");
+    this.registerModule("devtools/server/actors/preference");
   },
 
   /**
@@ -800,7 +803,8 @@ ActorPool.prototype = {
     if (!aActor.actorID) {
       let prefix = aActor.actorPrefix;
       if (typeof aActor == "function") {
-        prefix = aActor.prototype.actorPrefix;
+        // typeName is a convention used with protocol.js-based actors
+        prefix = aActor.prototype.actorPrefix || aActor.prototype.typeName;
       }
       aActor.actorID = this.conn.allocID(prefix || undefined);
     }

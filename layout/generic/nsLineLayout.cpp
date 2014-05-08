@@ -1721,7 +1721,7 @@ nsLineLayout::BlockDirAlignFrames(PerSpanData* psd)
     float inflation =
       GetInflationForBlockDirAlignment(spanFrame, mInflationMinFontSize);
     nscoord logicalBSize = nsHTMLReflowState::
-      CalcLineHeight(spanFrame->StyleContext(),
+      CalcLineHeight(spanFrame->GetContent(), spanFrame->StyleContext(),
                      mBlockReflowState->ComputedHeight(),
                      inflation);
     nscoord contentBSize = spanFramePFD->mBounds.BSize(lineWM) -
@@ -1945,7 +1945,7 @@ nsLineLayout::BlockDirAlignFrames(PerSpanData* psd)
           nscoord parentDescent = fm->MaxDescent();
           if (frameSpan) {
             pfd->mBounds.BStart(lineWM) = baselineBCoord + parentDescent -
-                                          pfd->mBounds.BStart(lineWM) +
+                                          pfd->mBounds.BSize(lineWM) +
                                           pfd->mBorderPadding.BEnd(frameWM) -
                                           frameSpan->mBEndLeading;
           }
@@ -1981,7 +1981,7 @@ nsLineLayout::BlockDirAlignFrames(PerSpanData* psd)
         // of the elements line block size value.
         float inflation =
           GetInflationForBlockDirAlignment(frame, mInflationMinFontSize);
-        pctBasis = nsHTMLReflowState::CalcLineHeight(
+        pctBasis = nsHTMLReflowState::CalcLineHeight(frame->GetContent(),
           frame->StyleContext(), mBlockReflowState->ComputedBSize(),
           inflation);
       }
@@ -2456,7 +2456,7 @@ nsLineLayout::ApplyFrameJustification(PerSpanData* aPSD, FrameJustificationState
     // Don't reposition bullets (and other frames that occur out of X-order?)
     if (!pfd->GetFlag(PFD_ISBULLET)) {
       nscoord dw = 0;
-      WritingMode lineWM = aPSD->mWritingMode;
+      WritingMode lineWM = mRootSpan->mWritingMode;
 
       pfd->mBounds.IStart(lineWM) += deltaICoord;
 

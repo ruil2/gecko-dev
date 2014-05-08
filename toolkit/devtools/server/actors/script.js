@@ -3,7 +3,6 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 "use strict";
 
 let TYPED_ARRAY_CLASSES = ["Uint8Array", "Uint8ClampedArray", "Uint16Array",
@@ -39,7 +38,7 @@ function BreakpointStore() {
   //
   // is an object
   //
-  //   { url, line[, actor] }
+  //   { url, line, column[, actor] }
   //
   // where the `actor` property is optional.
   this._breakpoints = Object.create(null);
@@ -59,6 +58,7 @@ BreakpointStore.prototype = {
    *          - line
    *          - column (optional; omission implies that the breakpoint is for
    *            the whole line)
+   *          - condition (optional)
    *          - actor (optional)
    */
   addBreakpoint: function (aBreakpoint) {
@@ -636,22 +636,49 @@ ThreadActor.prototype = {
    */
   globalManager: {
     findGlobals: function () {
+      const { gDevToolsExtensions: {
+        getContentGlobals
+      } } = Cu.import("resource://gre/modules/devtools/DevToolsExtensions.jsm", {});
+
       this.globalDebugObject = this._addDebuggees(this.global);
+
+      // global may not be a window
+      try {
+        getContentGlobals({
+          'inner-window-id': getInnerId(this.global)
+        }).forEach(this.addDebuggee.bind(this));
+      }
+      catch(e) {}
     },
 
     /**
-     * A function that the engine calls when a new global object has been
-     * created.
+     * A function that the engine calls when a new global object
+     * (for example a sandbox) has been created.
      *
      * @param aGlobal Debugger.Object
      *        The new global object that was created.
      */
     onNewGlobal: function (aGlobal) {
+      let useGlobal = (aGlobal.hostAnnotations &&
+                       aGlobal.hostAnnotations.type == "document" &&
+                       aGlobal.hostAnnotations.element === this.global);
+
+      // check if the global is a sdk page-mod sandbox
+      if (!useGlobal) {
+        let metadata = {};
+        let id = "";
+        try {
+          id = getInnerId(this.global);
+          metadata = Cu.getSandboxMetadata(aGlobal.unsafeDereference());
+        }
+        catch (e) {}
+
+        useGlobal = (metadata['inner-window-id'] && metadata['inner-window-id'] == id);
+      }
+
       // Content debugging only cares about new globals in the contant window,
       // like iframe children.
-      if (aGlobal.hostAnnotations &&
-          aGlobal.hostAnnotations.type == "document" &&
-          aGlobal.hostAnnotations.element === this.global) {
+      if (useGlobal) {
         this.addDebuggee(aGlobal);
         // Notify the client.
         this.conn.send({
@@ -1336,13 +1363,20 @@ ThreadActor.prototype = {
       if (line == null ||
           line < 0 ||
           this.dbg.findScripts({ url: url }).length == 0) {
-        return { error: "noScript" };
+        return {
+          error: "noScript",
+          message: "Requested setting a breakpoint on "
+            + url + ":" + line
+            + (column != null ? ":" + column : "")
+            + " but there is no Debugger.Script at that location"
+        };
       }
 
       let response = this._createAndStoreBreakpoint({
         url: url,
         line: line,
-        column: column
+        column: column,
+        condition: aRequest.condition
       });
       // If the original location of our generated location is different from
       // the original location we attempted to set the breakpoint on, we will
@@ -1410,11 +1444,13 @@ ThreadActor.prototype = {
     let storedBp = this.breakpointStore.getBreakpoint(aLocation);
     if (storedBp.actor) {
       actor = storedBp.actor;
+      actor.condition = aLocation.condition;
     } else {
       storedBp.actor = actor = new BreakpointActor(this, {
         url: aLocation.url,
         line: aLocation.line,
-        column: aLocation.column
+        column: aLocation.column,
+        condition: aLocation.condition
       });
       this.threadLifetimePool.addActor(actor);
     }
@@ -1424,6 +1460,10 @@ ThreadActor.prototype = {
     if (scripts.length == 0) {
       return {
         error: "noScript",
+        message: "Requested setting a breakpoint on "
+          + aLocation.url + ":" + aLocation.line
+          + (aLocation.column != null ? ":" + aLocation.column : "")
+          + " but there is no Debugger.Script at that location",
         actor: actor.actorID
       };
     }
@@ -2896,8 +2936,12 @@ ObjectActor.prototype = {
       let previewers = DebuggerServer.ObjectActorPreviewers[this.obj.class] ||
                        DebuggerServer.ObjectActorPreviewers.Object;
       for (let fn of previewers) {
-        if (fn(this, g, raw)) {
-          break;
+        try {
+          if (fn(this, g, raw)) {
+            break;
+          }
+        } catch (e) {
+          DevToolsUtils.reportException("ObjectActor.prototype.grip previewer function", e);
         }
       }
     }
@@ -4185,15 +4229,17 @@ FrameActor.prototype.requestTypes = {
  * @param object aLocation
  *        The location of the breakpoint as specified in the protocol.
  */
-function BreakpointActor(aThreadActor, aLocation)
+function BreakpointActor(aThreadActor, { url, line, column, condition })
 {
   this.scripts = [];
   this.threadActor = aThreadActor;
-  this.location = aLocation;
+  this.location = { url: url, line: line, column: column };
+  this.condition = condition;
 }
 
 BreakpointActor.prototype = {
   actorPrefix: "breakpoint",
+  condition: null,
 
   /**
    * Called when this same breakpoint is added to another Debugger.Script
@@ -4219,6 +4265,14 @@ BreakpointActor.prototype = {
     this.scripts = [];
   },
 
+  isValidCondition: function(aFrame) {
+    if(!this.condition) {
+      return true;
+    }
+    var res = aFrame.eval(this.condition);
+    return res.return;
+  },
+
   /**
    * A function that the engine calls when a breakpoint has been hit.
    *
@@ -4235,7 +4289,9 @@ BreakpointActor.prototype = {
         column: this.location.column
       }));
 
-    if (this.threadActor.sources.isBlackBoxed(url) || aFrame.onStep) {
+    if (this.threadActor.sources.isBlackBoxed(url)
+        || aFrame.onStep
+        || !this.isValidCondition(aFrame)) {
       return undefined;
     }
 
@@ -5325,3 +5381,8 @@ function makeDebuggeeValueIfNeeded(obj, value) {
   }
   return value;
 }
+
+function getInnerId(window) {
+  return window.QueryInterface(Ci.nsIInterfaceRequestor).
+                getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID;
+};

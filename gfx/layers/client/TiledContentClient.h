@@ -55,6 +55,7 @@ public:
   virtual int32_t ReadLock() = 0;
   virtual int32_t ReadUnlock() = 0;
   virtual int32_t GetReadCount() = 0;
+  virtual bool IsValid() const = 0;
 
   enum gfxSharedReadLockType {
     TYPE_MEMORY,
@@ -80,6 +81,8 @@ public:
 
   virtual gfxSharedReadLockType GetType() MOZ_OVERRIDE { return TYPE_MEMORY; }
 
+  virtual bool IsValid() const MOZ_OVERRIDE { return true; };
+
 private:
   int32_t mReadCount;
 };
@@ -101,21 +104,24 @@ public:
 
   virtual int32_t GetReadCount() MOZ_OVERRIDE;
 
+  virtual bool IsValid() const MOZ_OVERRIDE { return mAllocSuccess; };
+
   virtual gfxSharedReadLockType GetType() MOZ_OVERRIDE { return TYPE_SHMEM; }
 
-  mozilla::ipc::Shmem& GetShmem() { return mShmem; }
+  mozilla::layers::ShmemSection& GetShmemSection() { return mShmemSection; }
 
   static already_AddRefed<gfxShmSharedReadLock>
-  Open(mozilla::layers::ISurfaceAllocator* aAllocator, const mozilla::ipc::Shmem& aShmem)
+  Open(mozilla::layers::ISurfaceAllocator* aAllocator, const mozilla::layers::ShmemSection& aShmemSection)
   {
-    nsRefPtr<gfxShmSharedReadLock> readLock = new gfxShmSharedReadLock(aAllocator, aShmem);
+    nsRefPtr<gfxShmSharedReadLock> readLock = new gfxShmSharedReadLock(aAllocator, aShmemSection);
     return readLock.forget();
   }
 
 private:
-  gfxShmSharedReadLock(ISurfaceAllocator* aAllocator, const mozilla::ipc::Shmem& aShmem)
+  gfxShmSharedReadLock(ISurfaceAllocator* aAllocator, const mozilla::layers::ShmemSection& aShmemSection)
     : mAllocator(aAllocator)
-    , mShmem(aShmem)
+    , mShmemSection(aShmemSection)
+    , mAllocSuccess(true)
   {
     MOZ_COUNT_CTOR(gfxShmSharedReadLock);
   }
@@ -123,11 +129,12 @@ private:
   ShmReadLockInfo* GetShmReadLockInfoPtr()
   {
     return reinterpret_cast<ShmReadLockInfo*>
-      (mShmem.get<char>() + mShmem.Size<char>() - sizeof(ShmReadLockInfo));
+      (mShmemSection.shmem().get<char>() + mShmemSection.offset());
   }
 
   RefPtr<ISurfaceAllocator> mAllocator;
-  mozilla::ipc::Shmem mShmem;
+  mozilla::layers::ShmemSection mShmemSection;
+  bool mAllocSuccess;
 };
 
 /**
@@ -170,14 +177,18 @@ struct TileClient
 
   void ReadUnlock()
   {
-    NS_ASSERTION(mFrontLock != nullptr, "ReadUnlock with no gfxSharedReadLock");
-    mFrontLock->ReadUnlock();
+    MOZ_ASSERT(mFrontLock, "ReadLock with no gfxSharedReadLock");
+    if (mFrontLock) {
+      mFrontLock->ReadUnlock();
+    }
   }
 
   void ReadLock()
   {
-    NS_ASSERTION(mFrontLock != nullptr, "ReadLock with no gfxSharedReadLock");
-    mFrontLock->ReadLock();
+    MOZ_ASSERT(mFrontLock, "ReadLock with no gfxSharedReadLock");
+    if (mFrontLock) {
+      mFrontLock->ReadLock();
+    }
   }
 
   void Release()
@@ -233,41 +244,46 @@ struct BasicTiledLayerPaintData {
    * The scroll offset of the content from the nearest ancestor layer that
    * represents scrollable content with a display port set.
    */
-  ScreenPoint mScrollOffset;
+  ParentLayerPoint mScrollOffset;
 
   /*
    * The scroll offset of the content from the nearest ancestor layer that
    * represents scrollable content with a display port set, for the last
    * layer update transaction.
    */
-  ScreenPoint mLastScrollOffset;
+  ParentLayerPoint mLastScrollOffset;
 
   /*
-   * The transform matrix to go from ParentLayer units to transformed
-   * LayoutDevice units.
+   * The transform matrix to go from Screen units to ParentLayer units.
    */
-  gfx3DMatrix mTransformParentLayerToLayout;
+  gfx3DMatrix mTransformParentLayerToLayoutDevice;
 
   /*
    * The critical displayport of the content from the nearest ancestor layer
    * that represents scrollable content with a display port set. Empty if a
    * critical displayport is not set.
    *
-   * This is in transformed LayoutDevice coordinates, but is stored as an
-   * nsIntRect for convenience when intersecting with the layer's mValidRegion.
+   * This is in LayoutDevice coordinates, but is stored as an nsIntRect for
+   * convenience when intersecting with the layer's mValidRegion.
    */
-  nsIntRect mLayoutCriticalDisplayPort;
+  nsIntRect mCriticalDisplayPort;
+
+  /*
+   * The viewport of the content from the nearest ancestor layer that
+   * represents scrollable content with a display port set.
+   */
+  LayoutDeviceRect mViewport;
 
   /*
    * The render resolution of the document that the content this layer
    * represents is in.
    */
-  CSSToScreenScale mResolution;
+  CSSToParentLayerScale mResolution;
 
   /*
-   * The composition bounds of the primary scrollable layer, in transformed
-   * layout device coordinates. This is used to make sure that tiled updates to
-   * regions that are visible to the user are grouped coherently.
+   * The composition bounds of the layer, in LayoutDevice coordinates. This is
+   * used to make sure that tiled updates to regions that are visible to the
+   * user are grouped coherently.
    */
   LayoutDeviceRect mCompositionBounds;
 
@@ -370,9 +386,9 @@ public:
 
   void DiscardBackBuffers();
 
-  const CSSToScreenScale& GetFrameResolution() { return mFrameResolution; }
+  const CSSToParentLayerScale& GetFrameResolution() { return mFrameResolution; }
 
-  void SetFrameResolution(const CSSToScreenScale& aResolution) { mFrameResolution = aResolution; }
+  void SetFrameResolution(const CSSToParentLayerScale& aResolution) { mFrameResolution = aResolution; }
 
   bool HasFormatChanged() const;
 
@@ -413,7 +429,7 @@ private:
   ClientLayerManager* mManager;
   LayerManager::DrawThebesLayerCallback mCallback;
   void* mCallbackData;
-  CSSToScreenScale mFrameResolution;
+  CSSToParentLayerScale mFrameResolution;
   bool mLastPaintOpaque;
 
   // The DrawTarget we use when UseSinglePaintBuffer() above is true.

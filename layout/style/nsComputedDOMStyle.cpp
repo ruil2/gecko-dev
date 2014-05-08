@@ -2274,18 +2274,20 @@ nsComputedDOMStyle::DoGetBackgroundSize()
 CSSValue*
 nsComputedDOMStyle::DoGetGridTemplateAreas()
 {
-  const nsTArray<nsString>& templates =
-    StylePosition()->mGridTemplateAreas.mTemplates;
-  if (templates.IsEmpty()) {
+  const css::GridTemplateAreasValue* areas =
+    StylePosition()->mGridTemplateAreas;
+  if (!areas) {
     nsROCSSPrimitiveValue *val = new nsROCSSPrimitiveValue;
     val->SetIdent(eCSSKeyword_none);
     return val;
   }
 
+  MOZ_ASSERT(!areas->mTemplates.IsEmpty(),
+             "Unexpected empty array in GridTemplateAreasValue");
   nsDOMCSSValueList *valueList = GetROCSSValueList(false);
-  for (uint32_t i = 0; i < templates.Length(); i++) {
+  for (uint32_t i = 0; i < areas->mTemplates.Length(); i++) {
     nsAutoString str;
-    nsStyleUtil::AppendEscapedCSSString(templates[i], str);
+    nsStyleUtil::AppendEscapedCSSString(areas->mTemplates[i], str);
     nsROCSSPrimitiveValue *val = new nsROCSSPrimitiveValue;
     val->SetString(str);
     valueList->AppendCSSValue(val);
@@ -3129,8 +3131,6 @@ nsComputedDOMStyle::DoGetTextCombineHorizontal()
 CSSValue*
 nsComputedDOMStyle::DoGetTextDecoration()
 {
-  nsROCSSPrimitiveValue* val = new nsROCSSPrimitiveValue;
-
   const nsStyleTextReset* textReset = StyleTextReset();
 
   // If decoration style or color wasn't initial value, the author knew the
@@ -3151,6 +3151,7 @@ nsComputedDOMStyle::DoGetTextDecoration()
   // i.e., text-decoration was assumed as a longhand property.  In that case,
   // we should return computed value same as CSS 2.1 for backward compatibility.
 
+  nsROCSSPrimitiveValue* val = new nsROCSSPrimitiveValue;
   uint8_t line = textReset->mTextDecorationLine;
   // Clear the -moz-anchor-decoration bit and the OVERRIDE_ALL bits -- we
   // don't want these to appear in the computed style.
@@ -4420,7 +4421,7 @@ nsComputedDOMStyle::GetLineHeightCoord(nscoord& aCoord)
 
   // lie about font size inflation since we lie about font size (since
   // the inflation only applies to text)
-  aCoord = nsHTMLReflowState::CalcLineHeight(mStyleContextHolder,
+  aCoord = nsHTMLReflowState::CalcLineHeight(mContent, mStyleContextHolder,
                                              blockHeight, 1.0f);
 
   // CalcLineHeight uses font->mFont.size, but we want to use
