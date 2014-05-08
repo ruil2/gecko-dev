@@ -146,29 +146,39 @@ GeckoMediaPluginService::SelectPluginFromListForAPI(const nsCString& api,
 nsresult
 GeckoMediaPluginService::GetDirectoriesToSearch(nsTArray<nsCOMPtr<nsIFile>> &aDirs)
 {
-#if defined(XP_MACOSX)
+#if defined(XP_WIN)
   nsCOMPtr<nsIFile> searchDir = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
-  //nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("~/tmp/GMP/"));
-  nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("/Volumes/Work/openh264_support/"));
-  if (NS_FAILED(rv)) {
-    return rv;
-  }
-  aDirs.AppendElement(searchDir);
+  nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("c:/tmp/GMP/"));
+    if (NS_SUCCEEDED(rv)) 
+        aDirs.AppendElement(searchDir);
+
+#elif defined(XP_MACOSX)
+
+  nsCOMPtr<nsIFile> searchDir = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
+  nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("~/tmp/GMP/"));
+  //nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("/Volumes/Work/openh264_support/"));
+  if (NS_SUCCEEDED(rv))
+    aDirs.AppendElement(searchDir);
+  
   searchDir = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
   rv = searchDir->InitWithPath(NS_LITERAL_STRING("/Library/Internet Plug-Ins/"));
-  if (NS_FAILED(rv)) {
-    return rv;
-  }
-  aDirs.AppendElement(searchDir);
+  if (NS_SUCCEEDED(rv))
+    aDirs.AppendElement(searchDir);
+
 #elif defined(OS_POSIX)
+  
   nsCOMPtr<nsIFile> searchDir = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
-  nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("/usr/lib/mozilla/plugins/"));
-  if (NS_FAILED(rv)) {
-    return rv;
-  }
-  aDirs.AppendElement(searchDir);
+  nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("~/tmp/GMP/"));
+  //nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("/Volumes/Work/openh264_support/"));
+  if (NS_SUCCEEDED(rv))
+    aDirs.AppendElement(searchDir);
+ 
+  searchDir = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
+  rv = searchDir->InitWithPath(NS_LITERAL_STRING("/usr/lib/mozilla/plugins/"));
+  if (NS_SUCCEEDED(rv))
+    aDirs.AppendElement(searchDir);
 #endif
-  return NS_OK;
+  return rv;
 }
 
 #if defined(XP_WIN)
