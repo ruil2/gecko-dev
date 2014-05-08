@@ -173,8 +173,8 @@ GeckoMediaPluginService::GetDirectoriesToSearch(nsTArray<nsCOMPtr<nsIFile>> &aDi
   if (NS_SUCCEEDED(rv))
     aDirs.AppendElement(searchDir);
  
-  nsCOMPtr<nsIFile> searchDir = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
-  nsresult rv = searchDir->InitWithPath(NS_LITERAL_STRING("/usr/lib/mozilla/plugins/"));
+  searchDir = do_CreateInstance(NS_LOCAL_FILE_CONTRACTID);
+  rv = searchDir->InitWithPath(NS_LITERAL_STRING("/usr/lib/mozilla/plugins/"));
   if (NS_SUCCEEDED(rv))
     aDirs.AppendElement(searchDir);
 #endif
