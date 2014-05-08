@@ -382,6 +382,12 @@ int32_t RTPSender::SendOutgoingData(
       return SendPaddingAccordingToBitrate(payload_type, capture_timestamp,
                                            capture_time_ms) ? 0 : -1;
     }
+      
+#ifdef HARDCODE_TO_USE_H264_PACKETIZATION
+    // hard-code to use h.264 packetization
+    video_type = kRtpVideoH264;
+#endif // ~HARDCODE_TO_USE_H264_PACKETIZATION
+
     return video_->SendVideo(video_type, frame_type, payload_type,
                              capture_timestamp, capture_time_ms, payload_data,
                              payload_size, fragmentation, codec_info,

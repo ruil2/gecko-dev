@@ -27,6 +27,9 @@ namespace webrtc {
 
 const int kVideoPayloadTypeFrequency = 90000;
 
+// Open this macro to use H.264 packetization patch
+//#define HARDCODE_TO_USE_H264_PACKETIZATION
+    
 struct AudioPayload
 {
     uint32_t    frequency;

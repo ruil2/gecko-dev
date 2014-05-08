@@ -60,6 +60,10 @@ int32_t RTPReceiverVideo::ParseRtpPacket(
                "seqnum", rtp_header->header.sequenceNumber,
                "timestamp", rtp_header->header.timestamp);
   rtp_header->type.Video.codec = specific_payload.Video.videoCodecType;
+#ifdef HARDCODE_TO_USE_H264_PACKETIZATION
+  // hard-code to use h.264 packetization
+  rtp_header->type.Video.codec = kRtpVideoH264;
+#endif // ~HARDCODE_TO_USE_H264_PACKETIZATION
 
   const uint16_t payload_data_length =
       payload_length - rtp_header->header.paddingLength;
