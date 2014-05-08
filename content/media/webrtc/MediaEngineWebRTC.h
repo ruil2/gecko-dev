@@ -26,12 +26,11 @@
 #include "AudioSegment.h"
 #include "StreamBuffer.h"
 #include "MediaStreamGraph.h"
-#include "LoadMonitor.h"
 
 #include "MediaEngineWrapper.h"
-
+#include "mozilla/dom/MediaStreamTrackBinding.h"
 // WebRTC library includes follow
-
+#include "webrtc/common.h"
 // Audio Engine
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_codec.h"
@@ -72,14 +71,13 @@ class GetCameraNameRunnable;
  *
  * MediaThread:
  *   mState, mImage, mWidth, mHeight, mCapability, mPrefs, mDeviceName, mUniqueId, mInitDone,
- *   mSources, mImageContainer, mSources, mState, mImage, mLastCapture
+ *   mImageContainer, mSources, mState, mImage
  *
  * MainThread:
- *   mCaptureIndex, mWindowId,
- *   mNativeCameraControl, mPreviewStream, mState, mLastCapture, mWidth, mHeight
+ *   mCaptureIndex, mLastCapture, mState,  mWidth, mHeight,
  *
  * Where mWidth, mHeight, mImage are protected by mMonitor
- *       mState, mLastCapture is protected by mCallbackMonitor
+ *       mState is protected by mCallbackMonitor
  * Other variable is accessed only from single thread
  */
 class MediaEngineWebRTCVideoSource : public MediaEngineVideoSource
@@ -159,6 +157,10 @@ public:
   virtual bool IsFake() {
     return false;
   }
+
+    virtual dom::MozMediaSourceEnum GetMozMediaSource(){
+        return dom::MozMediaSourceEnum::Camera;
+    };
 
 #ifndef MOZ_B2G_CAMERA
   NS_DECL_THREADSAFE_ISUPPORTS
@@ -248,7 +250,36 @@ private:
 
   void ChooseCapability(const MediaEnginePrefs &aPrefs);
 };
-
+    class MediaEngineWebRTCScreenSource : public MediaEngineWebRTCVideoSource{
+    public:
+#ifdef MOZ_B2G_CAMERA
+        MediaEngineWebRTCScreenSource(int aIndex):MediaEngineWebRTCVideoSource(aIndex){
+        }
+#else
+        MediaEngineWebRTCScreenSource(webrtc::VideoEngine* aVideoEnginePtr, int aIndex):MediaEngineWebRTCVideoSource(aVideoEnginePtr,aIndex){
+        }
+#endif
+        
+        virtual dom::MozMediaSourceEnum GetMozMediaSource(){
+            return dom::MozMediaSourceEnum::Screen;
+        };
+    };
+    class MediaEngineWebRTCApplicationSource : public MediaEngineWebRTCVideoSource{
+    public:
+#ifdef MOZ_B2G_CAMERA
+        MediaEngineWebRTCApplicationSource(int aIndex)
+                                :MediaEngineWebRTCVideoSource(aIndex){
+        }
+#else
+        MediaEngineWebRTCApplicationSource(webrtc::VideoEngine* aVideoEnginePtr, int aIndex)
+                                :MediaEngineWebRTCVideoSource(aVideoEnginePtr,aIndex){
+        }
+#endif
+        
+        virtual dom::MozMediaSourceEnum GetMozMediaSource(){
+            return dom::MozMediaSourceEnum::Application;
+        };
+    };
 class MediaEngineWebRTCAudioSource : public MediaEngineAudioSource,
                                      public webrtc::VoEMediaProcess
 {
@@ -354,25 +385,40 @@ public:
 
   virtual void EnumerateVideoDevices(nsTArray<nsRefPtr<MediaEngineVideoSource> >*);
   virtual void EnumerateAudioDevices(nsTArray<nsRefPtr<MediaEngineAudioSource> >*);
-
+    virtual void EnumerateScreenDevices(nsTArray<nsRefPtr<MediaEngineVideoSource> >*);
+    virtual void EnumerateApplicationDevices(nsTArray<nsRefPtr<MediaEngineVideoSource> >*);
+protected:
+    void EnumerateCommonVideoDevices(nsTArray<nsRefPtr<MediaEngineVideoSource> >*aVSources,
+                                    webrtc::VideoEngine* videoEngine,
+                                     bool& bEngineInit,
+                                     dom::MozMediaSourceEnum);
 private:
   Mutex mMutex;
+    //vagouzhou@gmail.com
+    //TBD ,implement application sharing in future
+    //vagouzhou>>engine is cache, had to seperate video/screen/application
+    webrtc::Config mConfigScreen;
+    webrtc::Config mConfigApplication;
+    
   // protected with mMutex:
-
+    webrtc::VideoEngine* mScreenEngine;
+    webrtc::VideoEngine* mAppEngine;//vagouzhou>>maybe we can merge it with mScreenEngine
   webrtc::VideoEngine* mVideoEngine;
   webrtc::VoiceEngine* mVoiceEngine;
 
   // Need this to avoid unneccesary WebRTC calls while enumerating.
   bool mVideoEngineInit;
   bool mAudioEngineInit;
+    bool mScreenEngineInit;
+    bool mAppEngineInit;
   bool mHasTabVideoSource;
 
   // Store devices we've already seen in a hashtable for quick return.
   // Maps UUID to MediaEngineSource (one set for audio, one for video).
   nsRefPtrHashtable<nsStringHashKey, MediaEngineWebRTCVideoSource > mVideoSources;
-  nsRefPtrHashtable<nsStringHashKey, MediaEngineWebRTCAudioSource > mAudioSources;
-
-  nsRefPtr<LoadMonitor> mLoadMonitor;
+    nsRefPtrHashtable<nsStringHashKey, MediaEngineWebRTCAudioSource > mAudioSources;
+    //nsRefPtrHashtable<nsStringHashKey, MediaEngineWebRTCVideoSource > mScreenSources;
+    //nsRefPtrHashtable<nsStringHashKey, MediaEngineWebRTCVideoSource > mAppSources;
 };
 
 }

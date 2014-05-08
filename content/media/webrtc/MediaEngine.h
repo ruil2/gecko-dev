@@ -9,6 +9,7 @@
 #include "nsIDOMFile.h"
 #include "DOMMediaStream.h"
 #include "MediaStreamGraph.h"
+#include "mozilla/dom/MediaStreamTrackBinding.h"
 
 namespace mozilla {
 
@@ -47,7 +48,6 @@ public:
   static const int DEFAULT_VIDEO_WIDTH = 640;
   static const int DEFAULT_VIDEO_HEIGHT = 480;
   static const int DEFAULT_AUDIO_TIMER_MS = 10;
-  static const bool DEFAULT_LOAD_ADAPT = false;
 
   /* Populate an array of video sources in the nsTArray. Also include devices
    * that are currently unavailable. */
@@ -55,7 +55,9 @@ public:
 
   /* Populate an array of audio sources in the nsTArray. Also include devices
    * that are currently unavailable. */
-  virtual void EnumerateAudioDevices(nsTArray<nsRefPtr<MediaEngineAudioSource> >*) = 0;
+    virtual void EnumerateAudioDevices(nsTArray<nsRefPtr<MediaEngineAudioSource> >*) = 0;
+    virtual void EnumerateScreenDevices(nsTArray<nsRefPtr<MediaEngineVideoSource> >*) = 0;
+    virtual void EnumerateApplicationDevices(nsTArray<nsRefPtr<MediaEngineVideoSource> >*) = 0;
 };
 
 /**
@@ -133,13 +135,13 @@ struct MediaEnginePrefs {
   int32_t mHeight;
   int32_t mFPS;
   int32_t mMinFPS;
-  bool mLoadAdapt;
 };
 
 class MediaEngineVideoSource : public MediaEngineSource
 {
 public:
   virtual ~MediaEngineVideoSource() {}
+    virtual dom::MozMediaSourceEnum GetMozMediaSource(){ return dom::MozMediaSourceEnum::Camera; }
 };
 
 /**

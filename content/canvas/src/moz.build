@@ -67,6 +67,7 @@ if CONFIG['MOZ_WEBGL']:
         'WebGLExtensionTextureHalfFloatLinear.cpp',
         'WebGLExtensionVertexArray.cpp',
         'WebGLFramebuffer.cpp',
+        'WebGLFramebufferAttachable.cpp',
         'WebGLObjectModel.cpp',
         'WebGLProgram.cpp',
         'WebGLQuery.cpp',
@@ -96,6 +97,7 @@ FINAL_LIBRARY = 'gklayout'
 LOCAL_INCLUDES += [
     '/content/base/src',
     '/content/html/content/src',
+    '/content/svg/content/src',
     '/content/xul/content/src',
     '/dom/base',
     '/image/src',
@@ -104,4 +106,3 @@ LOCAL_INCLUDES += [
     '/layout/style',
     '/layout/xul',
 ]
-

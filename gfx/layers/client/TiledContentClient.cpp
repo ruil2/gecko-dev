@@ -156,7 +156,7 @@ SharedFrameMetricsHelper::UpdateFromCompositorFrameMetrics(
   const FrameMetrics& contentMetrics = aLayer->GetFrameMetrics();
   FrameMetrics compositorMetrics;
 
-  if (!compositor->LookupCompositorFrameMetrics(contentMetrics.mScrollId,
+  if (!compositor->LookupCompositorFrameMetrics(contentMetrics.GetScrollId(),
                                                 compositorMetrics)) {
     FindFallbackContentFrameMetrics(aLayer, aCompositionBounds, aZoom);
     return false;
@@ -178,7 +178,7 @@ SharedFrameMetricsHelper::UpdateFromCompositorFrameMetrics(
 
   // Always abort updates if the resolution has changed. There's no use
   // in drawing at the incorrect resolution.
-  if (!FuzzyEquals(compositorMetrics.mZoom.scale, contentMetrics.mZoom.scale)) {
+  if (!FuzzyEquals(compositorMetrics.GetZoom().scale, contentMetrics.GetZoom().scale)) {
     return true;
   }
 
@@ -186,8 +186,8 @@ SharedFrameMetricsHelper::UpdateFromCompositorFrameMetrics(
   // display-port. If we abort updating when we shouldn't, we can end up
   // with blank regions on the screen and we open up the risk of entering
   // an endless updating cycle.
-  if (fabsf(contentMetrics.mScrollOffset.x - compositorMetrics.mScrollOffset.x) <= 2 &&
-      fabsf(contentMetrics.mScrollOffset.y - compositorMetrics.mScrollOffset.y) <= 2 &&
+  if (fabsf(contentMetrics.GetScrollOffset().x - compositorMetrics.GetScrollOffset().x) <= 2 &&
+      fabsf(contentMetrics.GetScrollOffset().y - compositorMetrics.GetScrollOffset().y) <= 2 &&
       fabsf(contentMetrics.mDisplayPort.x - compositorMetrics.mDisplayPort.x) <= 2 &&
       fabsf(contentMetrics.mDisplayPort.y - compositorMetrics.mDisplayPort.y) <= 2 &&
       fabsf(contentMetrics.mDisplayPort.width - compositorMetrics.mDisplayPort.width) <= 2 &&
@@ -241,7 +241,7 @@ bool
 SharedFrameMetricsHelper::AboutToCheckerboard(const FrameMetrics& aContentMetrics,
                                               const FrameMetrics& aCompositorMetrics)
 {
-  return !aContentMetrics.mDisplayPort.Contains(CSSRect(aCompositorMetrics.CalculateCompositedRectInCssPixels()) - aCompositorMetrics.mScrollOffset);
+  return !aContentMetrics.mDisplayPort.Contains(CSSRect(aCompositorMetrics.CalculateCompositedRectInCssPixels()) - aCompositorMetrics.GetScrollOffset());
 }
 
 ClientTiledLayerBuffer::ClientTiledLayerBuffer(ClientTiledThebesLayer* aThebesLayer,
@@ -310,15 +310,16 @@ gfxMemorySharedReadLock::GetReadCount()
 
 gfxShmSharedReadLock::gfxShmSharedReadLock(ISurfaceAllocator* aAllocator)
   : mAllocator(aAllocator)
+  , mAllocSuccess(false)
 {
   MOZ_COUNT_CTOR(gfxShmSharedReadLock);
-
+  MOZ_ASSERT(mAllocator);
   if (mAllocator) {
 #define MOZ_ALIGN_WORD(x) (((x) + 3) & ~3)
-    if (mAllocator->AllocUnsafeShmem(MOZ_ALIGN_WORD(sizeof(ShmReadLockInfo)),
-                                     mozilla::ipc::SharedMemory::TYPE_BASIC, &mShmem)) {
+    if (mAllocator->AllocShmemSection(MOZ_ALIGN_WORD(sizeof(ShmReadLockInfo)), &mShmemSection)) {
       ShmReadLockInfo* info = GetShmReadLockInfoPtr();
       info->readCount = 1;
+      mAllocSuccess = true;
     }
   }
 }
@@ -331,18 +332,23 @@ gfxShmSharedReadLock::~gfxShmSharedReadLock()
 int32_t
 gfxShmSharedReadLock::ReadLock() {
   NS_ASSERT_OWNINGTHREAD(gfxShmSharedReadLock);
-
+  if (!mAllocSuccess) {
+    return 0;
+  }
   ShmReadLockInfo* info = GetShmReadLockInfoPtr();
   return PR_ATOMIC_INCREMENT(&info->readCount);
 }
 
 int32_t
 gfxShmSharedReadLock::ReadUnlock() {
+  if (!mAllocSuccess) {
+    return 0;
+  }
   ShmReadLockInfo* info = GetShmReadLockInfoPtr();
   int32_t readCount = PR_ATOMIC_DECREMENT(&info->readCount);
   NS_ASSERTION(readCount >= 0, "ReadUnlock called without a ReadLock.");
   if (readCount <= 0) {
-    mAllocator->DeallocShmem(mShmem);
+    mAllocator->FreeShmemSection(mShmemSection);
   }
   return readCount;
 }
@@ -350,7 +356,9 @@ gfxShmSharedReadLock::ReadUnlock() {
 int32_t
 gfxShmSharedReadLock::GetReadCount() {
   NS_ASSERT_OWNINGTHREAD(gfxShmSharedReadLock);
-
+  if (!mAllocSuccess) {
+    return 0;
+  }
   ShmReadLockInfo* info = GetShmReadLockInfoPtr();
   return info->readCount;
 }
@@ -514,6 +522,9 @@ TileClient::GetBackBuffer(const nsIntRegion& aDirtyRegion, TextureClientPool *aP
     } else {
       mBackLock = new gfxShmSharedReadLock(mManager->AsShadowForwarder());
     }
+
+    MOZ_ASSERT(mBackLock->IsValid());
+
     *aCreatedTextureClient = true;
     mInvalidBack = nsIntRect(0, 0, TILEDLAYERBUFFER_TILE_SIZE, TILEDLAYERBUFFER_TILE_SIZE);
   }
@@ -536,10 +547,15 @@ TileClient::GetTileDescriptor()
     // see TiledLayerBufferComposite::TiledLayerBufferComposite
     mFrontLock->AddRef();
   }
-  return TexturedTileDescriptor(nullptr, mFrontBuffer->GetIPDLActor(),
-            mFrontLock->GetType() == gfxSharedReadLock::TYPE_MEMORY
-              ? TileLock(uintptr_t(mFrontLock.get()))
-              : TileLock(static_cast<gfxShmSharedReadLock*>(mFrontLock.get())->GetShmem()));
+
+  if (mFrontLock->GetType() == gfxSharedReadLock::TYPE_MEMORY) {
+    return TexturedTileDescriptor(nullptr, mFrontBuffer->GetIPDLActor(),
+                                  TileLock(uintptr_t(mFrontLock.get())));
+  } else {
+    gfxShmSharedReadLock *lock = static_cast<gfxShmSharedReadLock*>(mFrontLock.get());
+    return TexturedTileDescriptor(nullptr, mFrontBuffer->GetIPDLActor(),
+                                  TileLock(lock->GetShmemSection()));
+  }
 }
 
 void
@@ -592,7 +608,7 @@ ClientTiledLayerBuffer::GetSurfaceDescriptorTiles()
   }
   return SurfaceDescriptorTiles(mValidRegion, mPaintedRegion,
                                 tiles, mRetainedWidth, mRetainedHeight,
-                                mResolution);
+                                mResolution, mFrameResolution.scale);
 }
 
 void
@@ -845,18 +861,18 @@ ClientTiledLayerBuffer::ValidateTile(TileClient aTile,
 static LayoutDeviceRect
 TransformCompositionBounds(const ParentLayerRect& aCompositionBounds,
                            const CSSToParentLayerScale& aZoom,
-                           const ScreenPoint& aScrollOffset,
-                           const CSSToScreenScale& aResolution,
-                           const gfx3DMatrix& aTransformScreenToLayout)
+                           const ParentLayerPoint& aScrollOffset,
+                           const CSSToParentLayerScale& aResolution,
+                           const gfx3DMatrix& aTransformParentLayerToLayoutDevice)
 {
-  // Transform the current composition bounds into transformed layout device
-  // space by compensating for the difference in resolution and subtracting the
+  // Transform the current composition bounds into ParentLayer coordinates
+  // by compensating for the difference in resolution and subtracting the
   // old composition bounds origin.
-  ScreenRect offsetViewportRect = (aCompositionBounds / aZoom) * aResolution;
+  ParentLayerRect offsetViewportRect = (aCompositionBounds / aZoom) * aResolution;
   offsetViewportRect.MoveBy(-aScrollOffset);
 
   gfxRect transformedViewport =
-    aTransformScreenToLayout.TransformBounds(
+    aTransformParentLayerToLayoutDevice.TransformBounds(
       gfxRect(offsetViewportRect.x, offsetViewportRect.y,
               offsetViewportRect.width, offsetViewportRect.height));
 
@@ -868,10 +884,10 @@ TransformCompositionBounds(const ParentLayerRect& aCompositionBounds,
 
 bool
 ClientTiledLayerBuffer::ComputeProgressiveUpdateRegion(const nsIntRegion& aInvalidRegion,
-                                                      const nsIntRegion& aOldValidRegion,
-                                                      nsIntRegion& aRegionToPaint,
-                                                      BasicTiledLayerPaintData* aPaintData,
-                                                      bool aIsRepeated)
+                                                       const nsIntRegion& aOldValidRegion,
+                                                       nsIntRegion& aRegionToPaint,
+                                                       BasicTiledLayerPaintData* aPaintData,
+                                                       bool aIsRepeated)
 {
   aRegionToPaint = aInvalidRegion;
 
@@ -926,20 +942,27 @@ ClientTiledLayerBuffer::ComputeProgressiveUpdateRegion(const nsIntRegion& aInval
     }
   }
 
-  // Transform the screen coordinates into transformed layout device coordinates.
+  // Transform the composition bounds, which is in the ParentLayer coordinates
+  // of the nearest ContainerLayer with a valid displayport to LayoutDevice
+  // coordinates relative to this layer.
   LayoutDeviceRect transformedCompositionBounds =
     TransformCompositionBounds(compositionBounds, zoom, aPaintData->mScrollOffset,
-                               aPaintData->mResolution, aPaintData->mTransformParentLayerToLayout);
+                               aPaintData->mResolution, aPaintData->mTransformParentLayerToLayoutDevice);
 
   // Paint tiles that have stale content or that intersected with the screen
   // at the time of issuing the draw command in a single transaction first.
   // This is to avoid rendering glitches on animated page content, and when
   // layers change size/shape.
-  LayoutDeviceRect coherentUpdateRect =
+  LayoutDeviceRect typedCoherentUpdateRect =
     transformedCompositionBounds.Intersect(aPaintData->mCompositionBounds);
 
+  // Offset by the viewport origin, as the composition bounds are stored in
+  // Layer space and not LayoutDevice space.
+  typedCoherentUpdateRect.MoveBy(aPaintData->mViewport.TopLeft());
+
+  // Convert to untyped to intersect with the invalid region.
   nsIntRect roundedCoherentUpdateRect =
-    LayoutDeviceIntRect::ToUntyped(RoundedOut(coherentUpdateRect));
+    LayoutDeviceIntRect::ToUntyped(RoundedOut(typedCoherentUpdateRect));
 
   aRegionToPaint.And(aInvalidRegion, roundedCoherentUpdateRect);
   aRegionToPaint.Or(aRegionToPaint, staleRegion);

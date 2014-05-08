@@ -44,6 +44,8 @@ const ERRORS = {
     "Only privileged and certified apps may use Firefox Accounts",
   "ERROR_INVALID_ASSERTION_AUDIENCE":
     "Assertion audience may not differ from origin",
+  "ERROR_REQUEST_WHILE_NOT_HANDLING_USER_INPUT":
+    "The request() method may only be invoked when handling user input",
 };
 
 function nsDOMIdentity(aIdentityInternal) {
@@ -99,7 +101,7 @@ nsDOMIdentity.prototype = {
    * Relying Party (RP) APIs
    */
 
-  watch: function nsDOMIdentity_watch(aOptions) {
+  watch: function nsDOMIdentity_watch(aOptions = {}) {
     if (this._rpWatcher) {
       // For the initial release of Firefox Accounts, we support callers who
       // invoke watch() either for Firefox Accounts, or Persona, but not both.
@@ -109,33 +111,7 @@ nsDOMIdentity.prototype = {
       throw new Error("navigator.id.watch was already called");
     }
 
-    if (!aOptions || typeof(aOptions) !== "object") {
-      throw new Error("options argument to watch is required");
-    }
-
-    // The relying party (RP) provides callbacks on watch().
-    //
-    // In the future, BrowserID will probably only require an onlogin()
-    // callback [1], lifting the requirement that BrowserID handle logged-in
-    // state management for RPs.  See
-    // https://github.com/mozilla/id-specs/blob/greenfield/browserid/api-rp.md
-    //
-    // However, Firefox Accounts will almost certainly require RPs to provide
-    // onlogout(), onready(), and possibly an onerror() callback.
-    // XXX Bug 945278
-    //
-    // To accomodate the more and less lenient uses of the API, we will simply
-    // be strict about checking for onlogin here.
-    if (typeof(aOptions["onlogin"]) != "function") {
-      throw new Error("onlogin() callback is required.");
-    }
-
-    // Optional callbacks
-    for (let cb of ["onready", "onerror", "onlogout"]) {
-      if (aOptions[cb] && typeof(aOptions[cb]) != "function") {
-        throw new Error(cb + " must be a function");
-      }
-    }
+    assertCorrectCallbacks(aOptions);
 
     let message = this.DOMIdentityMessage(aOptions);
 
@@ -178,17 +154,6 @@ nsDOMIdentity.prototype = {
 
   request: function nsDOMIdentity_request(aOptions = {}) {
     this._log("request: " + JSON.stringify(aOptions));
-    let util = this._window.QueryInterface(Ci.nsIInterfaceRequestor)
-                           .getInterface(Ci.nsIDOMWindowUtils);
-
-    // The only time we permit calling of request() outside of a user
-    // input handler is when we are handling the (deprecated) get() or
-    // getVerifiedEmail() calls, which make use of an RP context
-    // marked as _internal.
-    if (this.nativeEventsRequired && !util.isHandlingUserInput && !aOptions._internal) {
-      this._log("request: rejecting non-native event");
-      return;
-    }
 
     // Has the caller called watch() before this?
     if (!this._rpWatcher) {
@@ -198,7 +163,31 @@ nsDOMIdentity.prototype = {
       throw new Error("navigator.id.request called too many times");
     }
 
+    let util = this._window.QueryInterface(Ci.nsIInterfaceRequestor)
+                           .getInterface(Ci.nsIDOMWindowUtils);
+
     let message = this.DOMIdentityMessage(aOptions);
+
+    // We permit calling of request() outside of a user input handler only when
+    // we are handling the (deprecated) get() or getVerifiedEmail() calls,
+    // which make use of an RP context marked as _internal, or when a certified
+    // app is calling.
+    //
+    // XXX Bug 982460 - grant the same privilege to packaged apps
+
+    if (!aOptions._internal &&
+        this._appStatus !== Ci.nsIPrincipal.APP_STATUS_CERTIFIED) {
+
+      // If the caller is not special in one of those ways, see if the user has
+      // preffed on 'syntheticEventsOk' (useful for testing); otherwise, if
+      // this is a non-native event, reject it.
+      let util = this._window.QueryInterface(Ci.nsIInterfaceRequestor)
+                             .getInterface(Ci.nsIDOMWindowUtils);
+
+      if (!util.isHandlingUserInput && this.nativeEventsRequired) {
+        message.errors.push("ERROR_REQUEST_WHILE_NOT_HANDLING_USER_INPUT");
+      }
+    }
 
     // Report and fail hard on any errors.
     if (message.errors.length) {
@@ -620,7 +609,8 @@ nsDOMIdentity.prototype = {
 
     // Currently, we only permit certified and privileged apps to use
     // Firefox Accounts.
-    if (this._appStatus !== principal.APP_STATUS_PRIVILEGED &&
+    if (aOptions.wantIssuer == "firefox-accounts" &&
+        this._appStatus !== principal.APP_STATUS_PRIVILEGED &&
         this._appStatus !== principal.APP_STATUS_CERTIFIED) {
       message.errors.push("ERROR_NOT_AUTHORIZED_FOR_FIREFOX_ACCOUNTS");
     }
@@ -648,13 +638,13 @@ nsDOMIdentity.prototype = {
     // Replace any audience supplied by the RP with one that has been sanitised
     message.audience = _audience;
 
-    this._log("Generated message: " + JSON.stringify(message));
+    this._log("DOMIdentityMessage: " + JSON.stringify(message));
 
     return message;
   },
 
   uninit: function DOMIdentity_uninit() {
-    this._log("nsDOMIdentity uninit()");
+    this._log("nsDOMIdentity uninit() " + this._id);
     this._identityInternal._mm.sendAsyncMessage(
       "Identity:RP:Unwatch",
       { id: this._id }
@@ -781,7 +771,38 @@ nsDOMIdentityInternal.prototype = {
     interfaces: [],
     classDescription: "Identity DOM Implementation"
   })
-
 };
+
+function assertCorrectCallbacks(aOptions) {
+  // The relying party (RP) provides callbacks on watch().
+  //
+  // In the future, BrowserID will probably only require an onlogin()
+  // callback, lifting the requirement that BrowserID handle logged-in
+  // state management for RPs.  See
+  // https://github.com/mozilla/id-specs/blob/greenfield/browserid/api-rp.md
+  //
+  // However, Firefox Accounts requires callers to provide onlogout(),
+  // onready(), and also supports an onerror() callback.
+
+  let requiredCallbacks = ["onlogin"];
+  let optionalCallbacks = ["onlogout", "onready", "onerror"];
+
+  if (aOptions.wantIssuer == "firefox-accounts") {
+    requiredCallbacks = ["onlogin", "onlogout", "onready"];
+    optionalCallbacks = ["onerror"];
+  }
+
+  for (let cbName of requiredCallbacks) {
+    if (typeof(aOptions[cbName]) != "function") {
+      throw new Error(cbName + " callback is required.");
+    }
+  }
+
+  for (let cbName of optionalCallbacks) {
+    if (aOptions[cbName] && typeof(aOptions[cbName]) != "function") {
+      throw new Error(cbName + " must be a function");
+    }
+  }
+}
 
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([nsDOMIdentityInternal]);

@@ -12,7 +12,6 @@ const XULNS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource:///modules/SignInToWebsite.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "AboutHome",
                                   "resource:///modules/AboutHome.jsm");
@@ -38,8 +37,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "BookmarkHTMLUtils",
 XPCOMUtils.defineLazyModuleGetter(this, "BookmarkJSONUtils",
                                   "resource://gre/modules/BookmarkJSONUtils.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "webappsUI",
-                                  "resource:///modules/webappsUI.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "WebappManager",
+                                  "resource:///modules/WebappManager.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "PageThumbs",
                                   "resource://gre/modules/PageThumbs.jsm");
@@ -87,6 +86,11 @@ XPCOMUtils.defineLazyModuleGetter(this, "BrowserUITelemetry",
 
 XPCOMUtils.defineLazyModuleGetter(this, "AsyncShutdown",
                                   "resource://gre/modules/AsyncShutdown.jsm");
+
+#ifdef NIGHTLY_BUILD
+XPCOMUtils.defineLazyModuleGetter(this, "SignInToWebsiteUX",
+                                  "resource:///modules/SignInToWebsite.jsm");
+#endif
 
 const PREF_PLUGINS_NOTIFYUSER = "plugins.update.notifyUser";
 const PREF_PLUGINS_UPDATEURL  = "plugins.update.url";
@@ -468,11 +472,15 @@ BrowserGlue.prototype = {
 
     this._syncSearchEngines();
 
-    webappsUI.init();
+    WebappManager.init();
     PageThumbs.init();
     NewTabUtils.init();
     BrowserNewTabPreloader.init();
-    SignInToWebsiteUX.init();
+#ifdef NIGHTLY_BUILD
+    if (Services.prefs.getBoolPref("dom.identity.enabled")) {
+      SignInToWebsiteUX.init();
+    }
+#endif
     PdfJs.init();
 #ifdef NIGHTLY_BUILD
     ShumwayUtils.init();
@@ -626,7 +634,11 @@ BrowserGlue.prototype = {
     // Offer to reset a user's profile if it hasn't been used for 60 days.
     const OFFER_PROFILE_RESET_INTERVAL_MS = 60 * 24 * 60 * 60 * 1000;
     let lastUse = Services.appinfo.replacedLockTime;
-    if (lastUse &&
+    let disableResetPrompt = false;
+    try {
+      disableResetPrompt = Services.prefs.getBoolPref("browser.disableResetPrompt");
+    } catch(e) {}
+    if (!disableResetPrompt && lastUse &&
         Date.now() - lastUse >= OFFER_PROFILE_RESET_INTERVAL_MS) {
       this._resetUnusedProfileNotification();
     }
@@ -654,8 +666,12 @@ BrowserGlue.prototype = {
 
     BrowserNewTabPreloader.uninit();
     CustomizationTabPreloader.uninit();
-    webappsUI.uninit();
-    SignInToWebsiteUX.uninit();
+    WebappManager.uninit();
+#ifdef NIGHTLY_BUILD
+    if (Services.prefs.getBoolPref("dom.identity.enabled")) {
+      SignInToWebsiteUX.uninit();
+    }
+#endif
     webrtcUI.uninit();
   },
 
@@ -1292,7 +1308,7 @@ BrowserGlue.prototype = {
   },
 
   _migrateUI: function BG__migrateUI() {
-    const UI_VERSION = 21;
+    const UI_VERSION = 22;
     const BROWSER_DOCURL = "chrome://browser/content/browser.xul#";
     let currentUIVersion = 0;
     try {
@@ -1572,6 +1588,12 @@ BrowserGlue.prototype = {
       if (this._getPersist(button, classResource)) {
         this._setPersist(button, classResource);
       }
+    }
+
+    if (currentUIVersion < 22) {
+      // Reset the Sync promobox count to promote the new FxAccount-based Sync.
+      Services.prefs.clearUserPref("browser.syncPromoViewsLeft");
+      Services.prefs.clearUserPref("browser.syncPromoViewsLeftMap");
     }
 
     if (this._dirty)
