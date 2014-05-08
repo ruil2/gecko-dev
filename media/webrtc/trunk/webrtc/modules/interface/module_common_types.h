@@ -89,16 +89,26 @@ struct RTPVideoHeaderVP8
     bool           beginningOfPartition;  // True if this packet is the first
                                           // in a VP8 partition. Otherwise false
 };
+
+struct RTPVideoHeaderH264
+{
+    unsigned char nalu_header;
+    bool          single_nalu;
+    uint32_t      original_time_stamp; // only set for SPS/PPS
+};
+
 union RTPVideoTypeHeader
 {
     RTPVideoHeaderVP8       VP8;
+    RTPVideoHeaderH264      H264;
 };
 
 enum RtpVideoCodecTypes
 {
     kRtpVideoNone,
     kRtpVideoGeneric,
-    kRtpVideoVp8
+    kRtpVideoVp8,
+    kRtpVideoH264
 };
 struct RTPVideoHeader
 {

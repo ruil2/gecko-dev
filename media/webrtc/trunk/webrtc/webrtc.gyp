@@ -17,6 +17,7 @@
       'video_engine/video_engine.gyp:*',
       'voice_engine/voice_engine.gyp:*',
       '<(webrtc_vp8_dir)/vp8.gyp:*',
+      '<(webrtc_h264_dir)/dummy_h264.gyp:*',
     ],
   },
   'targets': [

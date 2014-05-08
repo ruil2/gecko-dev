@@ -222,6 +222,28 @@ bool ViEEncoder::Init() {
                  "%s RegisterSendPayload failure", __FUNCTION__);
     return false;
   }
+#elif defined(VIDEOCODEC_H264)
+  VideoCodec video_codec;
+  if (vcm_.Codec(webrtc::kVideoCodecH264, &video_codec) != VCM_OK) {
+    WEBRTC_TRACE(webrtc::kTraceError, webrtc::kTraceVideo,
+                 ViEId(engine_id_, channel_id_),
+                 "%s Codec failure", __FUNCTION__);
+    return false;
+  }
+  send_padding_ = video_codec.numberOfSimulcastStreams > 1;
+  if (vcm_.RegisterSendCodec(&video_codec, number_of_cores_,
+                             default_rtp_rtcp_->MaxDataPayloadLength()) != 0) {
+    WEBRTC_TRACE(webrtc::kTraceError, webrtc::kTraceVideo,
+                 ViEId(engine_id_, channel_id_),
+                 "%s RegisterSendCodec failure", __FUNCTION__);
+    return false;
+  }
+  if (default_rtp_rtcp_->RegisterSendPayload(video_codec) != 0) {
+    WEBRTC_TRACE(webrtc::kTraceError, webrtc::kTraceVideo,
+                 ViEId(engine_id_, channel_id_),
+                 "%s RegisterSendPayload failure", __FUNCTION__);
+    return false;
+  }
 #else
   VideoCodec video_codec;
   if (vcm_.Codec(webrtc::kVideoCodecI420, &video_codec) == VCM_OK) {

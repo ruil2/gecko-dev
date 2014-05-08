@@ -16,6 +16,7 @@
 #include "webrtc/modules/rtp_rtcp/interface/rtp_payload_registry.h"
 #include "webrtc/modules/rtp_rtcp/source/rtp_format_video_generic.h"
 #include "webrtc/modules/rtp_rtcp/source/rtp_utility.h"
+#include "webrtc/modules/rtp_rtcp/source/rtp_format_h264.h"
 #include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
 #include "webrtc/system_wrappers/interface/trace.h"
 #include "webrtc/system_wrappers/interface/trace_event.h"
@@ -124,6 +125,8 @@ int32_t RTPReceiverVideo::ParseVideoCodecSpecific(
       return ReceiveGenericCodec(rtp_header, payload_data, payload_data_length);
     case kRtpVideoVp8:
       return ReceiveVp8Codec(rtp_header, payload_data, payload_data_length);
+    case kRtpVideoH264:
+      return ReceiveH264Codec(rtp_header, payload_data, payload_data_length);
     case kRtpVideoNone:
       break;
   }
@@ -214,6 +217,67 @@ int32_t RTPReceiverVideo::ReceiveVp8Codec(WebRtcRTPHeader* rtp_header,
 
   if (data_callback_->OnReceivedPayloadData(parsed_packet.info.VP8.data,
                                             parsed_packet.info.VP8.dataLength,
+                                            rtp_header) != 0) {
+    return -1;
+  }
+  return 0;
+}
+
+int32_t RTPReceiverVideo::ReceiveH264Codec(WebRtcRTPHeader* rtp_header,
+                                          const uint8_t* payload_data,
+                                          uint16_t payload_data_length) {
+  // real payload
+  uint8_t* payload;
+  uint16_t payload_length;
+  unsigned char nal_type = payload_data[0] & 0x1F;
+  if (nal_type == RtpFormatH264::kH264FUANALUType) {
+    // Fragmentation
+    unsigned char fnri = payload_data[0] & 0xE0;
+    unsigned char original_nal_type = payload_data[1] & 0x1F;
+    bool first_fragment = (payload_data[1] & 0x80) >> 7;
+    //bool last_fragment = (payload_data[1] & 0x40) >> 6;
+
+    payload     = const_cast<uint8_t*> (payload_data)  + RtpFormatH264::kH264FUAHeaderLengthInBytes;
+    unsigned char original_nal_header = fnri | original_nal_type;
+    payload_length = payload_data_length - RtpFormatH264::kH264FUAHeaderLengthInBytes;
+
+    // WebRtcRTPHeader
+    if (original_nal_type == RtpFormatH264::kH264NALU_IDR) {
+      rtp_header->frameType = kVideoFrameKey;
+    } else {
+      rtp_header->frameType = kVideoFrameDelta;
+    }
+    rtp_header->type.Video.codec    = kRtpVideoH264;
+    rtp_header->type.Video.isFirstPacket = first_fragment;
+    RTPVideoHeaderH264* h264_header = &rtp_header->type.Video.codecHeader.H264;
+    h264_header->nalu_header        = original_nal_header;
+    h264_header->single_nalu        = false;
+  } else {
+    // single NALU
+    payload = const_cast<uint8_t*> (payload_data);
+    payload_length = payload_data_length;
+
+    // WebRtcRTPHeader
+    if (nal_type == RtpFormatH264::kH264NALU_SPS) {
+      // On sender side, SPS/PPS/IDR share the same time_stamp,
+      // so jitter_buffer will think they are in the same frame.
+      rtp_header->frameType = kVideoFrameKey;
+      rtp_header->header.timestamp -= 100; // to different SPS from the PPS/video frame with same timestamp
+    } else if (nal_type == RtpFormatH264::kH264NALU_PPS) {
+      rtp_header->frameType = kVideoFrameKey;
+      rtp_header->header.timestamp -= 50; // to different PPS from the SPS/video frame with same timestamp
+    } else {
+      rtp_header->frameType = kVideoFrameDelta;
+    }
+    rtp_header->type.Video.codec    = kRtpVideoH264;
+    rtp_header->type.Video.isFirstPacket = true; // First packet
+    RTPVideoHeaderH264* h264_header = &rtp_header->type.Video.codecHeader.H264;
+    h264_header->nalu_header        = payload_data[0];
+    h264_header->single_nalu        = true;
+  }
+
+  if (data_callback_->OnReceivedPayloadData(payload,
+                                            payload_length,
                                             rtp_header) != 0) {
     return -1;
   }

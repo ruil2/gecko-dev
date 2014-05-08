@@ -213,6 +213,22 @@ int32_t ViEChannel::Init() {
   }
 #endif
 
+#ifdef VIDEOCODEC_H264
+  VideoCodec video_codec264;
+  if (vcm_.Codec(kVideoCodecH264, &video_codec264) == VCM_OK) {
+    rtp_rtcp_->RegisterSendPayload(video_codec264);
+    // TODO(holmer): Can we call SetReceiveCodec() here instead?
+    if (!vie_receiver_.RegisterPayload(video_codec264)) {
+      return -1;
+    }
+    vcm_.RegisterReceiveCodec(&video_codec264, number_of_cores_);
+    vcm_.RegisterSendCodec(&video_codec264, number_of_cores_,
+                           rtp_rtcp_->MaxDataPayloadLength());
+  } else {
+    assert(false);
+  }
+#endif
+
   return 0;
 }
 

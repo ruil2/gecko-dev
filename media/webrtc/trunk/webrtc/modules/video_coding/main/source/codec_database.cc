@@ -19,6 +19,9 @@
 #ifdef VIDEOCODEC_VP8
 #include "webrtc/modules/video_coding/codecs/vp8/include/vp8.h"
 #endif
+#ifdef VIDEOCODEC_H264
+#include "webrtc/modules/video_coding/codecs/h264/include/h264.h"
+#endif
 #include "webrtc/modules/video_coding/main/source/internal_defines.h"
 #include "webrtc/system_wrappers/interface/trace.h"
 
@@ -119,6 +122,25 @@ bool VCMCodecDataBase::Codec(int list_id,
       settings->width = VCM_DEFAULT_CODEC_WIDTH;
       settings->height = VCM_DEFAULT_CODEC_HEIGHT;
       settings->minBitrate = VCM_MIN_BITRATE;
+      settings->numberOfSimulcastStreams = 0;
+      return true;
+    }
+#endif
+#ifdef VIDEOCODEC_H264
+    case VCM_H264_IDX: {
+      strncpy(settings->plName, "H264", 5);
+      settings->codecType    = kVideoCodecH264;
+      // 96 to 127 dynamic payload types for video codecs.
+      settings->plType       = VCM_H264_PAYLOAD_TYPE;
+      // Bitrate needed for this size and framerate.
+      settings->startBitrate = 3 * VCM_DEFAULT_CODEC_WIDTH *
+                                   VCM_DEFAULT_CODEC_HEIGHT * 8 *
+                                   VCM_DEFAULT_FRAME_RATE / 1000 / 2;
+      settings->maxBitrate   = settings->startBitrate;
+      settings->maxFramerate = VCM_DEFAULT_FRAME_RATE;
+      settings->width        = VCM_DEFAULT_CODEC_WIDTH;
+      settings->height       = VCM_DEFAULT_CODEC_HEIGHT;
+      settings->minBitrate   = VCM_MIN_BITRATE;
       settings->numberOfSimulcastStreams = 0;
       return true;
     }
@@ -361,6 +383,7 @@ bool VCMCodecDataBase::RequiresEncoderReset(const VideoCodec& new_send_codec) {
     case kVideoCodecI420:
     case kVideoCodecRED:
     case kVideoCodecULPFEC:
+    case kVideoCodecH264:
       break;
     // Unknown codec type, reset just to be sure.
     case kVideoCodecUnknown:
@@ -628,6 +651,10 @@ VCMGenericEncoder* VCMCodecDataBase::CreateEncoder(
     case kVideoCodecI420:
       return new VCMGenericEncoder(*(new I420Encoder));
 #endif
+#ifdef VIDEOCODEC_H264
+    case kVideoCodecH264:
+      return new VCMGenericEncoder(*(H264Encoder::Create()));
+#endif
     default:
       return NULL;
   }
@@ -653,6 +680,10 @@ VCMGenericDecoder* VCMCodecDataBase::CreateDecoder(VideoCodecType type) const {
 #ifdef VIDEOCODEC_I420
     case kVideoCodecI420:
       return new VCMGenericDecoder(*(new I420Decoder), id_);
+#endif
+#ifdef VIDEOCODEC_H264
+    case kVideoCodecH264:
+      return new VCMGenericDecoder(*(H264Decoder::Create()));
 #endif
     default:
       return NULL;
