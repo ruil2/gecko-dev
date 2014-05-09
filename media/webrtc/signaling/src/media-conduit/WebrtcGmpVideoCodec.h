@@ -17,7 +17,9 @@
 #ifndef WEBRTCGMPVIDEOCODEC_H_
 #define WEBRTCGMPVIDEOCODEC_H_
 
+#if !defined(XP_WIN)
 #include <sys/time.h>
+#endif
 
 #include <iostream>
 #include <queue>
@@ -69,11 +71,26 @@ class WebrtcGmpFrameStats {
 struct TimeStampedEvent {
   TimeStampedEvent(const std::string& name) :
       name_(name) {
-    struct timeval tv;
-    gettimeofday(&tv, 0);
-    time_ = tv.tv_sec;
-    time_ *= 1000000;
-    time_ += tv.tv_usec;
+	#if defined(XP_WIN)
+	
+		#define EPOCHFILETIME (116444736000000000ULL)
+		FILETIME ft;
+		LARGE_INTEGER li;
+
+		GetSystemTimeAsFileTime(&ft);
+		li.LowPart = ft.dwLowDateTime;
+		li.HighPart = ft.dwHighDateTime;
+		time_ = (li.QuadPart - EPOCHFILETIME) * 100;
+
+	#else
+
+		struct timeval tv;
+		gettimeofday(&tv, 0);
+		time_ = tv.tv_sec;
+		time_ *= 1000000;
+		time_ += tv.tv_usec;
+	
+	#endif
   };
 
   const std::string name_;

@@ -7,7 +7,14 @@
 #include <iostream>
 #include <vector>
 
-#include <sys/time.h>
+
+#if defined(XP_WIN)
+	#include <stdio.h>
+	#define snprintf _snprintf 
+#else
+	#include <sys/time.h>
+#endif
+
 
 #include <mozilla/Scoped.h>
 #include "VideoConduit.h"
